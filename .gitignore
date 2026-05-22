@@ -1,0 +1,18 @@
+# Python / Ambiente Virtual
+argos-ai/
+__pycache__/
+*.pyc
+
+# Modelos e Checkpoints (Ignora todas as pastas de modelo)
+argos_model/
+ai_service/argos_model/
+checkpoint-*/
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Outros
+.env
+.DS_Store
+dataset_argos.jsonl
