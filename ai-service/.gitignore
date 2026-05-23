@@ -1,0 +1,27 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.pytest_cache/
+.mypy_cache/
+
+# === Virtual envs ===
+.venv/
+venv/
+env/
+
+# === Model artifacts (heavy!) ===
+argos_model/
+*.pt
+*.bin
+*.safetensors
+*.onnx
+
+# === Training data ===
+*.jsonl
+*.csv
+
+# === Env ===
+.env
+.env.local

@@ -1,18 +1,18 @@
-# Python / Ambiente Virtual
-argos-ai/
-__pycache__/
-*.pyc
-
-# Modelos e Checkpoints (Ignora todas as pastas de modelo)
-argos_model/
-ai_service/argos_model/
-checkpoint-*/
-*.safetensors
-*.bin
-*.pt
-*.pth
-
-# Outros
-.env
+# === macOS ===
 .DS_Store
-dataset_argos.jsonl
+.AppleDouble
+.LSOverride
+
+# === Editors ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# === Environment files ===
+.env
+.env.local
+.env.*.local
+
+# Subprojects have their own .gitignore (backend/, ai-service/)
