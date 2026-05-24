@@ -45,6 +45,9 @@ run-api: ## Run API server
 run-worker: ## Run worker
 	go run ./cmd/worker
 
+seed: ## Populate database with realistic demo data (~150 records)
+	go run ./cmd/seed
+
 # --- Quality ---
 
 test: ## Run all tests
@@ -59,4 +62,4 @@ fmt: ## Format all code
 clean: ## Remove build artifacts
 	rm -rf bin/
 
-.PHONY: help setup db-up db-down db-logs db-shell build build-api build-worker run-api run-worker test vet fmt clean
+.PHONY: help setup db-up db-down db-logs db-shell build build-api build-worker run-api run-worker seed test vet fmt clean
