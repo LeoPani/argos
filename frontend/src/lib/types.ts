@@ -417,6 +417,72 @@ export interface MetricsResponse {
   top_inventors: InventorMetric[];
 }
 
+export interface MaintenanceRecommendation {
+  patent_id: number;
+  application_number: string;
+  age_years: number;
+  remaining_years: number;
+  next_annuity_brl: number;
+  total_remaining_cost_brl: number;
+  revenue_so_far_brl: number;
+  active_licenses: number;
+  expected_npv_brl: number;
+  recommendation: "keep" | "license" | "abandon";
+  reasoning: string[];
+  confidence: number;
+  methodology: string;
+}
+
+export interface CoinventorRef {
+  name: string;
+  co_patent_count: number;
+}
+
+export interface InventorPatentRef {
+  id: number;
+  application_number: string;
+  title: string;
+  filing_year: number;
+  ipc_category: number;
+  status: string;
+}
+
+export interface InventorProfile {
+  name: string;
+  total_patents: number;
+  granted_patents: number;
+  h_index_proxy: number;
+  ipc_breadth: number;
+  filing_year_span: string;
+  estimated_royalty_brl: number;
+  coinventors: CoinventorRef[];
+  patents: InventorPatentRef[];
+  ipc_distribution: Record<string, number>;
+  methodology: string;
+}
+
+export interface DepartmentHealth {
+  department: string;
+  patents: number;
+  grant_rate: number;
+  license_rate: number;
+  revenue_per_asset_brl: number;
+  composite_score: number;
+}
+
+export interface KnowledgePoint {
+  year: number;
+  new_patents: number;
+  knowledge_stock: number;
+}
+
+export interface KnowledgeStockResponse {
+  series: KnowledgePoint[];
+  scope: string;
+  methodology: string;
+  depreciation_rate: number;
+}
+
 export interface PCIScore {
   patent_id: number;
   forward_citations: number;

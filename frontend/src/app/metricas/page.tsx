@@ -10,21 +10,25 @@ import { Button } from "@/components/ui/button";
 import { SkeletonKPI } from "@/components/ui/skeleton";
 import { MetricTooltip } from "@/components/ui/metric-tooltip";
 import { useToast } from "@/components/ui/toast";
-import { useMetrics } from "@/lib/hooks";
+import { useMetrics, useDepartments, useKnowledgeStock } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { formatBRL } from "@/lib/utils";
 import {
   BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip,
   RadialBarChart, RadialBar, PolarAngleAxis,
+  AreaChart, Area,
 } from "recharts";
 import {
   GraduationCap, TrendingUp, Network, Award,
   RefreshCw, BookOpen, Database, ArrowRight, AlertCircle,
+  Building, Layers,
 } from "lucide-react";
 import { useState } from "react";
 
 export default function MetricsPage() {
   const { data, isLoading, mutate } = useMetrics("UFOP");
+  const { data: depts } = useDepartments();
+  const { data: stock } = useKnowledgeStock("UFOP");
   const [enriching, setEnriching] = useState(false);
   const toast = useToast();
 
@@ -241,6 +245,85 @@ export default function MetricsPage() {
         </Card>
       </div>
 
+      {/* Knowledge Stock (Griliches 1990) */}
+      {stock && stock.series.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Layers size={14} className="text-cyan-400" />
+              Knowledge Stock (Capital de R&amp;D)
+              <MetricTooltip metricID="knowledge_stock" />
+            </CardTitle>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Inventário perpétuo · δ = {(stock.depreciation_rate * 100).toFixed(0)}% · {stock.methodology}
+            </span>
+          </CardHeader>
+
+          <ResponsiveContainer width="100%" height={180}>
+            <AreaChart data={stock.series}>
+              <defs>
+                <linearGradient id="kstock" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip
+                formatter={(v, name) =>
+                  name === "knowledge_stock"
+                    ? [Number(v).toFixed(2), "Stock"]
+                    : [String(v), "Novas patentes"]
+                } />
+              <Area type="monotone" dataKey="knowledge_stock" stroke="#06b6d4" fill="url(#kstock)" strokeWidth={2} />
+              <Area type="step"     dataKey="new_patents"     stroke="#6366f1" fill="none" strokeWidth={1.5} strokeDasharray="3 3" />
+            </AreaChart>
+          </ResponsiveContainer>
+
+          <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+            <span className="text-white">Stock atual:</span>{" "}
+            {stock.series[stock.series.length - 1]?.knowledge_stock.toFixed(2)} unidades de R&amp;D acumulado
+            {" · "}
+            <span className="text-cyan-400">━ stock</span>
+            {" "}<span style={{ color: "#6366f1" }}>--- novas/ano</span>
+          </p>
+        </Card>
+      )}
+
+      {/* Department health breakdown */}
+      {depts && depts.departments.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building size={14} className="text-emerald-400" />
+              Health Score por departamento UFOP
+              <MetricTooltip metricID="autm_health_score" />
+            </CardTitle>
+          </CardHeader>
+
+          <div className="space-y-2">
+            {depts.departments.map(d => (
+              <div key={d.department} className="grid grid-cols-12 items-center gap-3 p-2 rounded"
+                style={{ background: "var(--surface-2)" }}>
+                <span className="col-span-3 text-sm text-white truncate">{d.department}</span>
+                <div className="col-span-5 h-2.5 rounded-full" style={{ background: "var(--border)" }}>
+                  <div className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${d.composite_score}%`,
+                      background: d.composite_score >= 70 ? "#34d399" :
+                                  d.composite_score >= 40 ? "#fbbf24" : "#f87171",
+                    }} />
+                </div>
+                <span className="col-span-1 text-sm text-white font-semibold">{d.composite_score.toFixed(1)}</span>
+                <span className="col-span-3 text-xs text-right" style={{ color: "var(--text-muted)" }}>
+                  {d.patents} pat · {(d.license_rate*100).toFixed(0)}% lic · {formatBRL(d.revenue_per_asset_brl)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Top inventors */}
       <Card>
         <CardHeader>
@@ -258,14 +341,16 @@ export default function MetricsPage() {
         ) : (
           <div className="space-y-1.5">
             {data.top_inventors.map((inv, i) => (
-              <div key={inv.name + i} className="flex items-center gap-3 p-2 rounded transition-colors hover:bg-white/5"
-                style={{ background: i === 0 ? "#fbbf2410" : "transparent" }}>
-                <span className="text-xs font-mono w-6 text-slate-500">#{i+1}</span>
-                <span className="text-sm font-medium text-white flex-1 truncate">{inv.name}</span>
-                <Badge variant="muted">{inv.total_patents} patentes</Badge>
-                <Badge variant="info">h ≈ {inv.h_index_proxy}</Badge>
-                <Badge variant="muted">{inv.ipc_breadth} cat IPC</Badge>
-              </div>
+              <Link key={inv.name + i} href={`/inventors/${encodeURIComponent(inv.name)}`}>
+                <div className="flex items-center gap-3 p-2 rounded transition-colors cursor-pointer hover:bg-white/5"
+                  style={{ background: i === 0 ? "#fbbf2410" : "transparent" }}>
+                  <span className="text-xs font-mono w-6 text-slate-500">#{i+1}</span>
+                  <span className="text-sm font-medium text-white flex-1 truncate">{inv.name}</span>
+                  <Badge variant="muted">{inv.total_patents} patentes</Badge>
+                  <Badge variant="info">h ≈ {inv.h_index_proxy}</Badge>
+                  <Badge variant="muted">{inv.ipc_breadth} cat IPC</Badge>
+                </div>
+              </Link>
             ))}
           </div>
         )}

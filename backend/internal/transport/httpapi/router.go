@@ -127,8 +127,12 @@ func NewRouter(deps Deps) http.Handler {
 		m := NewMetricsHandler(deps.MetricsService)
 		mux.HandleFunc("GET /api/v1/metrics",                m.Snapshot)
 		mux.HandleFunc("GET /api/v1/metrics/health-score",   m.HealthScore)
-		mux.HandleFunc("GET /api/v1/metrics/patent/{id}/pci", m.PCI)
-		mux.HandleFunc("GET /api/v1/metrics/methodology",    m.Methodology)
+		mux.HandleFunc("GET /api/v1/metrics/patent/{id}/pci",         m.PCI)
+		mux.HandleFunc("GET /api/v1/metrics/patent/{id}/maintenance", m.Maintenance)
+		mux.HandleFunc("GET /api/v1/metrics/inventors/{name}",        m.InventorProfile)
+		mux.HandleFunc("GET /api/v1/metrics/departments",             m.HealthByDepartment)
+		mux.HandleFunc("GET /api/v1/metrics/knowledge-stock",         m.KnowledgeStock)
+		mux.HandleFunc("GET /api/v1/metrics/methodology",             m.Methodology)
 	}
 
 	// ── Lens.org enrichment ───────────────────────────────────────────────

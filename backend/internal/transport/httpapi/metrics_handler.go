@@ -58,6 +58,61 @@ func (h *MetricsHandler) PCI(w http.ResponseWriter, r *http.Request) {
 	httputil.JSON(w, http.StatusOK, resp)
 }
 
+// Maintenance — GET /api/v1/metrics/patent/{id}/maintenance
+func (h *MetricsHandler) Maintenance(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httputil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_id"})
+		return
+	}
+	resp, err := h.svc.MaintenanceFor(r.Context(), id)
+	if err != nil {
+		httputil.JSON(w, http.StatusBadRequest, map[string]any{"error": "compute_failed", "message": err.Error()})
+		return
+	}
+	httputil.JSON(w, http.StatusOK, resp)
+}
+
+// InventorProfile — GET /api/v1/metrics/inventors/{name}
+func (h *MetricsHandler) InventorProfile(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	resp, err := h.svc.InventorByName(r.Context(), name)
+	if err != nil {
+		httputil.JSON(w, http.StatusNotFound, map[string]any{"error": "inventor_not_found", "message": err.Error()})
+		return
+	}
+	httputil.JSON(w, http.StatusOK, resp)
+}
+
+// HealthByDepartment — GET /api/v1/metrics/departments
+func (h *MetricsHandler) HealthByDepartment(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.svc.HealthByDepartment(r.Context())
+	if err != nil {
+		httputil.Error(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, map[string]any{"departments": resp})
+}
+
+// KnowledgeStock — GET /api/v1/metrics/knowledge-stock?scope=UFOP
+func (h *MetricsHandler) KnowledgeStock(w http.ResponseWriter, r *http.Request) {
+	scope := r.URL.Query().Get("scope")
+	if scope == "" {
+		scope = "UFOP"
+	}
+	resp, err := h.svc.KnowledgeStock(r.Context(), scope)
+	if err != nil {
+		httputil.Error(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, map[string]any{
+		"series":      resp,
+		"scope":       scope,
+		"methodology": "Griliches_1990_perpetual_inventory",
+		"depreciation_rate": 0.15,
+	})
+}
+
 // Methodology — GET /api/v1/metrics/methodology
 // Static metadata: formulas + references for each metric. Renderable by frontend.
 func (h *MetricsHandler) Methodology(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +177,35 @@ func methodologyPayload() map[string]any {
 				"references": []string{
 					"Hirsch, J. E. (2005). An index to quantify an individual's scientific research output. PNAS, 102(46), 16569-16572.",
 					"Wong, P. K., & Pang, R. K. M. (2011). The h-index, h-type indices, and the science citation index database. Scientometrics, 87(1), 165-176.",
+				},
+			},
+			{
+				"id":          "maintenance_decision",
+				"name":        "Patent Maintenance Decision (renewal economics)",
+				"description": "Recomendação keep/license/abandon por análise de NPV vs custo de anuidades",
+				"formula":     "if NPV > Σ remaining_annuities: keep; else if age<10 & licenses=0: license; else: abandon",
+				"references": []string{
+					"Schankerman, M., & Pakes, A. (1986). Estimates of the value of patent rights in European countries during the post-1950 period. The Economic Journal, 96(384), 1052-1076.",
+					"Pakes, A. (1986). Patents as options: some estimates of the value of holding European patent stocks. Econometrica, 54(4), 755-784.",
+				},
+			},
+			{
+				"id":          "knowledge_stock",
+				"name":        "Knowledge Stock (Perpetual Inventory)",
+				"description": "Capital de R&D acumulado da instituição via método de inventário perpétuo",
+				"formula":     "S(t) = (1 − δ) · S(t−1) + N(t)   onde δ = 0.15 (taxa de depreciação)",
+				"references": []string{
+					"Griliches, Z. (1990). Patent statistics as economic indicators: A survey. Journal of Economic Literature, 28(4), 1661-1707.",
+				},
+			},
+			{
+				"id":          "inventor_profile",
+				"name":        "Inventor Profile (Hirsch + Lei 10.973)",
+				"description": "Perfil produtivo do inventor com h-index proxy + estimativa de royalty devido por Lei 10.973/2004",
+				"formula":     "royalty_devido = Σ (contract.royalty × inventor_share_pct)  por patente do inventor",
+				"references": []string{
+					"Lei n. 10.973/2004 (Marco Legal da Ciência, Tecnologia e Inovação) — artigos 11-13.",
+					"Hirsch, J. E. (2005). An index to quantify an individual's scientific research output. PNAS, 102(46), 16569-16572.",
 				},
 			},
 			{

@@ -39,6 +39,9 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
+
+	"github.com/lib/pq"
 )
 
 // ─── Response types ──────────────────────────────────────────────────────────
@@ -521,6 +524,452 @@ func (s *MetricsService) PCI(ctx context.Context, patentID int64) (*PCIScore, er
 	}, nil
 }
 
+// ─── Maintenance Recommendation (Schankerman-Pakes 1986) ────────────────────
+
+// MaintenanceRecommendation tells the patent owner whether to keep paying
+// annuities, license, or abandon. Framework based on:
+//
+//   Schankerman, M., & Pakes, A. (1986). "Estimates of the value of patent
+//   rights in European countries during the post-1950 period."
+//   The Economic Journal, 96(384), 1052-1076.
+//
+//   Pakes, A. (1986). "Patents as options: some estimates of the value of
+//   holding European patent stocks." Econometrica, 54(4), 755-784.
+//
+// Rule:
+//   Expected_Value(t) = revenue_so_far + future_revenue × renewal_probability
+//   Keep_if Expected_Value > sum(remaining_annuities)
+//   License_if asset_unutilized AND age < 10
+//   Abandon_if Expected_Value < cost OR age > 17 with no revenue
+type MaintenanceRecommendation struct {
+	PatentID            int64   `json:"patent_id"`
+	ApplicationNumber   string  `json:"application_number"`
+	AgeYears            int     `json:"age_years"`
+	RemainingYears      int     `json:"remaining_years"`
+	NextAnnuityBRL      float64 `json:"next_annuity_brl"`
+	TotalRemainingCost  float64 `json:"total_remaining_cost_brl"`
+	RevenueSoFar        float64 `json:"revenue_so_far_brl"`
+	ActiveLicenses      int     `json:"active_licenses"`
+	ExpectedNPV         float64 `json:"expected_npv_brl"`      // assumes continuing revenue
+	Recommendation      string  `json:"recommendation"`         // "keep" | "license" | "abandon"
+	Reasoning           []string `json:"reasoning"`
+	Confidence          int     `json:"confidence"`             // 0-100
+	Methodology         string  `json:"methodology"`            // "Schankerman_Pakes_1986"
+}
+
+// MaintenanceFor computes the recommendation for one patent.
+func (s *MetricsService) MaintenanceFor(ctx context.Context, patentID int64) (*MaintenanceRecommendation, error) {
+	var (
+		appNum     string
+		status     string
+		filingDate sql.NullTime
+	)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT application_number, status, filing_date
+		FROM patents WHERE id = $1`, patentID).
+		Scan(&appNum, &status, &filingDate)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("patent id=%d not found", patentID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	rec := &MaintenanceRecommendation{
+		PatentID:          patentID,
+		ApplicationNumber: appNum,
+		Methodology:       "Schankerman_Pakes_1986",
+	}
+
+	// Age + remaining (Brazilian PI = 20 yr)
+	if filingDate.Valid {
+		years := int(time.Since(filingDate.Time).Hours() / (24 * 365.25))
+		rec.AgeYears = years
+		rec.RemainingYears = 20 - years
+		if rec.RemainingYears < 0 {
+			rec.RemainingYears = 0
+		}
+	}
+
+	// Next annuity + remaining cost (INPI table from portfolio_service)
+	rec.NextAnnuityBRL = patentAnnuityFee(rec.AgeYears + 1)
+	rec.TotalRemainingCost = remainingAnnuityCost(rec.AgeYears, rec.RemainingYears)
+
+	// Revenue so far + active licenses
+	_ = s.db.QueryRowContext(ctx, `
+		SELECT
+		  COUNT(*) FILTER (WHERE status='active'),
+		  COALESCE(SUM(upfront_fee + royalty_floor_annual), 0)
+		FROM tt_contracts WHERE patent_id = $1`, patentID).
+		Scan(&rec.ActiveLicenses, &rec.RevenueSoFar)
+
+	// Expected NPV — naive continuation of current revenue
+	if rec.ActiveLicenses > 0 {
+		// Assume each active contract pays floor for remaining years
+		rec.ExpectedNPV = rec.RevenueSoFar +
+			float64(rec.ActiveLicenses)*40000*float64(rec.RemainingYears)*0.7 // 0.7 = discount factor proxy
+	}
+
+	// Decision tree (Schankerman-Pakes-inspired)
+	npvNet := rec.ExpectedNPV - rec.TotalRemainingCost
+	var reasoning []string
+	switch {
+	case rec.AgeYears >= 17 && rec.ActiveLicenses == 0:
+		rec.Recommendation = "abandon"
+		rec.Confidence = 85
+		reasoning = append(reasoning,
+			"Patente com mais de 17 anos sem licenciamento ativo",
+			fmt.Sprintf("Anuidades restantes custam R$ %.2f sem retorno esperado", rec.TotalRemainingCost),
+			"Recomendação: deixar expirar e redirecionar verba para PI mais nova")
+	case rec.ActiveLicenses == 0 && rec.AgeYears < 10:
+		rec.Recommendation = "license"
+		rec.Confidence = 70
+		reasoning = append(reasoning,
+			"Patente jovem (< 10 anos) sem licenciamento",
+			fmt.Sprintf("Ainda restam %d anos de proteção utilizáveis", rec.RemainingYears),
+			"Recomendação: buscar licenciado ativamente — NIT pode acionar TT Marketplace")
+	case npvNet > rec.TotalRemainingCost*0.5:
+		rec.Recommendation = "keep"
+		rec.Confidence = 90
+		reasoning = append(reasoning,
+			fmt.Sprintf("NPV esperado (R$ %.0f) supera custos restantes (R$ %.0f)",
+				rec.ExpectedNPV, rec.TotalRemainingCost),
+			fmt.Sprintf("%d contrato(s) ativo(s) gerando receita recorrente", rec.ActiveLicenses),
+			"Recomendação: manter pagamento de anuidades")
+	case rec.ActiveLicenses > 0:
+		rec.Recommendation = "keep"
+		rec.Confidence = 75
+		reasoning = append(reasoning,
+			"Há licenciamento ativo — receita justifica manutenção",
+			"Recomendação: manter, mas reavaliar em 2 anos")
+	default:
+		rec.Recommendation = "license"
+		rec.Confidence = 60
+		reasoning = append(reasoning,
+			"Sem dados suficientes para decisão automática",
+			"Recomendação default: tentar licenciar antes de abandonar")
+	}
+
+	rec.Reasoning = reasoning
+	rec.ExpectedNPV = mround2(rec.ExpectedNPV)
+	rec.TotalRemainingCost = mround2(rec.TotalRemainingCost)
+	rec.RevenueSoFar = mround2(rec.RevenueSoFar)
+	return rec, nil
+}
+
+// patentAnnuityFee — INPI table (BRL, micro/small enterprise 2024).
+// Mirrors portfolio_service.patentAnnuity but with documented MPE values.
+func patentAnnuityFee(year int) float64 {
+	switch {
+	case year <= 2:
+		return 0
+	case year <= 6:
+		return 310
+	case year <= 10:
+		return 620
+	case year <= 15:
+		return 930
+	default:
+		return 1240
+	}
+}
+
+func remainingAnnuityCost(currentAge, remaining int) float64 {
+	total := 0.0
+	for i := 0; i < remaining; i++ {
+		total += patentAnnuityFee(currentAge + i + 1)
+	}
+	return total
+}
+
+// ─── Inventor Profile (Hirsch + Lei 10.973 royalty share) ────────────────────
+
+// InventorProfile is the public-facing detail page.
+type InventorProfile struct {
+	Name              string                 `json:"name"`
+	TotalPatents      int                    `json:"total_patents"`
+	GrantedPatents    int                    `json:"granted_patents"`
+	HIndex            int                    `json:"h_index_proxy"`
+	IPCBreadth        int                    `json:"ipc_breadth"`
+	FilingYearSpan    string                 `json:"filing_year_span"`     // "2018-2025"
+	EstimatedRoyalty  float64                `json:"estimated_royalty_brl"` // Lei 10.973 inventor share
+	Coinventors       []CoinventorRef        `json:"coinventors"`
+	Patents           []InventorPatentRef    `json:"patents"`
+	IPCDistribution   map[string]int         `json:"ipc_distribution"`     // letter → count
+	Methodology       string                 `json:"methodology"`          // "Hirsch_2005_Wong_Pang_2011_Lei_10973"
+}
+
+type CoinventorRef struct {
+	Name  string `json:"name"`
+	Count int    `json:"co_patent_count"`
+}
+
+type InventorPatentRef struct {
+	ID                int64  `json:"id"`
+	ApplicationNumber string `json:"application_number"`
+	Title             string `json:"title"`
+	FilingYear        int    `json:"filing_year"`
+	IPCCategory       int    `json:"ipc_category"`
+	Status            string `json:"status"`
+}
+
+// InventorByName fetches the full profile.
+func (s *MetricsService) InventorByName(ctx context.Context, name string) (*InventorProfile, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("name required")
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, application_number, title, EXTRACT(YEAR FROM filing_date)::INT,
+		       COALESCE(ipc_category, -1), status, inventors
+		FROM patents
+		WHERE $1 = ANY(inventors)
+		ORDER BY filing_date DESC NULLS LAST`, name)
+	if err != nil {
+		return nil, fmt.Errorf("inventor query: %w", err)
+	}
+	defer rows.Close()
+
+	profile := &InventorProfile{
+		Name:            name,
+		IPCDistribution: map[string]int{},
+		Methodology:     "Hirsch_2005_Wong_Pang_2011_Lei_10973",
+	}
+	coCount := map[string]int{}
+	var firstYear, lastYear int
+
+	for rows.Next() {
+		var (
+			ref    InventorPatentRef
+			others []string
+		)
+		var fyr sql.NullInt64
+		if err := rows.Scan(&ref.ID, &ref.ApplicationNumber, &ref.Title,
+			&fyr, &ref.IPCCategory, &ref.Status, pq.Array(&others)); err != nil {
+			return nil, err
+		}
+		if fyr.Valid {
+			ref.FilingYear = int(fyr.Int64)
+			if firstYear == 0 || ref.FilingYear < firstYear {
+				firstYear = ref.FilingYear
+			}
+			if ref.FilingYear > lastYear {
+				lastYear = ref.FilingYear
+			}
+		}
+		profile.Patents = append(profile.Patents, ref)
+		profile.TotalPatents++
+		if ref.Status == "classified" {
+			profile.GrantedPatents++
+		}
+		if ref.IPCCategory >= 0 && ref.IPCCategory < 8 {
+			profile.IPCDistribution[ipcLetters[ref.IPCCategory]]++
+		}
+		for _, o := range others {
+			if o != name {
+				coCount[o]++
+			}
+		}
+	}
+
+	if firstYear > 0 {
+		profile.FilingYearSpan = fmt.Sprintf("%d-%d", firstYear, lastYear)
+	}
+	profile.IPCBreadth = len(profile.IPCDistribution)
+	profile.HIndex = int(math.Min(float64(profile.TotalPatents), float64(profile.IPCBreadth*2)))
+
+	// Lei 10.973: inventor share is typically 1/3 of UFOP's royalty.
+	// Estimate from active contracts on inventor's patents.
+	patentIDs := make([]any, len(profile.Patents))
+	for i, p := range profile.Patents {
+		patentIDs[i] = p.ID
+	}
+	if len(patentIDs) > 0 {
+		placeholders := make([]string, len(patentIDs))
+		for i := range patentIDs {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+		}
+		q := "SELECT COALESCE(SUM((upfront_fee + royalty_floor_annual) * inventor_share_pct / 100), 0) " +
+			"FROM tt_contracts WHERE patent_id IN (" + strings.Join(placeholders, ",") + ")"
+		_ = s.db.QueryRowContext(ctx, q, patentIDs...).Scan(&profile.EstimatedRoyalty)
+	}
+
+	// Coinventors — top 5
+	for n, c := range coCount {
+		profile.Coinventors = append(profile.Coinventors, CoinventorRef{Name: n, Count: c})
+	}
+	// Sort by count desc
+	for i := 0; i < len(profile.Coinventors); i++ {
+		for j := i + 1; j < len(profile.Coinventors); j++ {
+			if profile.Coinventors[j].Count > profile.Coinventors[i].Count {
+				profile.Coinventors[i], profile.Coinventors[j] = profile.Coinventors[j], profile.Coinventors[i]
+			}
+		}
+	}
+	if len(profile.Coinventors) > 5 {
+		profile.Coinventors = profile.Coinventors[:5]
+	}
+
+	if profile.TotalPatents == 0 {
+		return nil, fmt.Errorf("inventor %q not found", name)
+	}
+
+	profile.EstimatedRoyalty = mround2(profile.EstimatedRoyalty)
+	return profile, nil
+}
+
+// ─── Department breakdown ────────────────────────────────────────────────────
+
+// DepartmentHealth is per-department AUTM Health Score.
+// "Department" here is derived from applicant text — UFOP's official org chart
+// would be the ideal source, but for the MVP we partition by applicant name.
+type DepartmentHealth struct {
+	Department      string  `json:"department"`
+	Patents         int     `json:"patents"`
+	GrantRate       float64 `json:"grant_rate"`
+	LicenseRate     float64 `json:"license_rate"`
+	RevenuePerAsset float64 `json:"revenue_per_asset_brl"`
+	CompositeScore  float64 `json:"composite_score"`
+}
+
+// HealthByDepartment partitions the AUTM index per UFOP department.
+func (s *MetricsService) HealthByDepartment(ctx context.Context) ([]DepartmentHealth, error) {
+	// Heuristic: use UFOP opportunity departments as dimension. Map back to
+	// patents via shared keywords. For demo we approximate by the IPC category
+	// since each UFOP department clusters around 1-2 IPC sections.
+	departments := []struct {
+		name      string
+		ipcCat    int
+		applicantLike string
+	}{
+		{"Química / Metalurgia",     2, "%Ouro Preto%"},
+		{"Engenharia Elétrica",      7, "%Ouro Preto%"},
+		{"Engenharia Mecânica",      5, "%Ouro Preto%"},
+		{"Física / Computação",      6, "%Ouro Preto%"},
+		{"Saúde / Biologia",         0, "%Ouro Preto%"},
+		{"Engenharia Civil",         4, "%Ouro Preto%"},
+	}
+
+	out := make([]DepartmentHealth, 0, len(departments))
+	for _, d := range departments {
+		var (
+			total, granted, failed, licensed int
+			revenue                          float64
+		)
+		_ = s.db.QueryRowContext(ctx, `
+			SELECT COUNT(*),
+			       SUM(CASE WHEN status='classified' THEN 1 ELSE 0 END),
+			       SUM(CASE WHEN status='failed'     THEN 1 ELSE 0 END)
+			FROM patents WHERE ipc_category = $1 AND applicant ILIKE $2`,
+			d.ipcCat, d.applicantLike).Scan(&total, &granted, &failed)
+
+		if total == 0 {
+			continue
+		}
+
+		_ = s.db.QueryRowContext(ctx, `
+			SELECT COUNT(DISTINCT t.patent_id),
+			       COALESCE(SUM(t.upfront_fee + t.royalty_floor_annual), 0)
+			FROM tt_contracts t
+			JOIN patents p ON p.id = t.patent_id
+			WHERE p.ipc_category = $1 AND p.applicant ILIKE $2`,
+			d.ipcCat, d.applicantLike).Scan(&licensed, &revenue)
+
+		grantRate := 0.0
+		denom := granted + failed
+		if denom > 0 {
+			grantRate = float64(granted) / float64(denom)
+		}
+		licenseRate := float64(licensed) / float64(total)
+		revPerAsset := revenue / float64(total)
+
+		// Same normalization as global health score
+		n1 := math.Min(100, grantRate*100)
+		n2 := math.Min(100, licenseRate*500)
+		n3 := math.Min(100, revPerAsset/500)
+		composite := (n1 + n2 + n3) / 3
+
+		out = append(out, DepartmentHealth{
+			Department:      d.name,
+			Patents:         total,
+			GrantRate:       mround3(grantRate),
+			LicenseRate:     mround3(licenseRate),
+			RevenuePerAsset: mround2(revPerAsset),
+			CompositeScore:  mround1(composite),
+		})
+	}
+
+	// Sort by composite desc
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].CompositeScore > out[i].CompositeScore {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out, nil
+}
+
+// ─── Knowledge Stock (Griliches 1990) ────────────────────────────────────────
+
+// KnowledgePoint is one year in the R&D capital time series.
+type KnowledgePoint struct {
+	Year         int     `json:"year"`
+	NewPatents   int     `json:"new_patents"`
+	Stock        float64 `json:"knowledge_stock"`
+}
+
+// KnowledgeStock computes the perpetual inventory method per Griliches (1990):
+//
+//	S(t) = (1 − δ) · S(t−1) + N(t)
+//
+// where δ is the depreciation rate (15% per Griliches; field-typical).
+//
+//	Griliches, Z. (1990). "Patent statistics as economic indicators:
+//	A survey." Journal of Economic Literature, 28(4), 1661-1707.
+func (s *MetricsService) KnowledgeStock(ctx context.Context, scope string) ([]KnowledgePoint, error) {
+	scopeFilter, args := buildScopeFilter(scope, "applicant")
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT EXTRACT(YEAR FROM filing_date)::INT AS yr, COUNT(*)
+		FROM patents
+		WHERE filing_date IS NOT NULL AND `+scopeFilter+`
+		GROUP BY yr
+		ORDER BY yr`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type yc struct{ y, c int }
+	var yearly []yc
+	for rows.Next() {
+		var v yc
+		if err := rows.Scan(&v.y, &v.c); err != nil {
+			return nil, err
+		}
+		yearly = append(yearly, v)
+	}
+
+	if len(yearly) == 0 {
+		return []KnowledgePoint{}, nil
+	}
+
+	const depreciation = 0.15
+
+	out := make([]KnowledgePoint, 0, len(yearly))
+	stock := 0.0
+	for _, v := range yearly {
+		stock = (1-depreciation)*stock + float64(v.c)
+		out = append(out, KnowledgePoint{
+			Year:       v.y,
+			NewPatents: v.c,
+			Stock:      mround2(stock),
+		})
+	}
+	return out, nil
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 // buildScopeFilter returns a SQL WHERE fragment for the given scope.
@@ -541,6 +990,8 @@ func buildScopeFilter(scope, column string) (string, []any) {
 }
 
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
+func mround1(v float64) float64 { return math.Round(v*10) / 10 }
 func mround2(v float64) float64 { return math.Round(v*100) / 100 }
+func mround3(v float64) float64 { return math.Round(v*1000) / 1000 }
 func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
 func round4(v float64) float64 { return math.Round(v*10000) / 10000 }

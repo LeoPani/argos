@@ -1,0 +1,43 @@
+# Fly.io deployment config for Argos API.
+#
+# Usage:
+#   $ flyctl launch --no-deploy   # creates app, links Postgres
+#   $ flyctl secrets set DATABASE_URL=postgres://...
+#   $ flyctl secrets set ANTHROPIC_API_KEY=sk-ant-...
+#   $ flyctl deploy
+
+app = "argos-api"
+primary_region = "gru"  # São Paulo (GRU) — closest to Brazilian users
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  API_ADDR    = ":8080"
+  LOG_FORMAT  = "json"
+  LOG_LEVEL   = "info"
+  # DATABASE_URL & ANTHROPIC_API_KEY set via `flyctl secrets`
+
+[http_service]
+  internal_port       = 8080
+  force_https         = true
+  auto_stop_machines  = "stop"        # idle = stopped, scales to 0
+  auto_start_machines = true          # cold-start on first request
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type       = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+[[http_service.checks]]
+  grace_period  = "10s"
+  interval      = "15s"
+  method        = "GET"
+  timeout       = "5s"
+  path          = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"  # 256MB — enough for the API
+  memory = "512mb"

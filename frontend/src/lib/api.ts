@@ -31,6 +31,8 @@ import type {
   ChatThread, ChatThreadListResponse, ChatRole, ChatMessage,
   SearchResponse,
   MetricsResponse, MethodologyPayload, PCIScore,
+  MaintenanceRecommendation, InventorProfile,
+  DepartmentHealth, KnowledgeStockResponse,
 } from "./types";
 
 export const api = {
@@ -65,6 +67,14 @@ export const api = {
       req<MetricsResponse>(`/api/v1/metrics?scope=${encodeURIComponent(scope)}`),
     methodology: () => req<MethodologyPayload>("/api/v1/metrics/methodology"),
     pci: (patentID: number) => req<PCIScore>(`/api/v1/metrics/patent/${patentID}/pci`),
+    maintenance: (patentID: number) =>
+      req<MaintenanceRecommendation>(`/api/v1/metrics/patent/${patentID}/maintenance`),
+    inventor: (name: string) =>
+      req<InventorProfile>(`/api/v1/metrics/inventors/${encodeURIComponent(name)}`),
+    departments: () =>
+      req<{ departments: DepartmentHealth[] }>("/api/v1/metrics/departments"),
+    knowledgeStock: (scope = "UFOP") =>
+      req<KnowledgeStockResponse>(`/api/v1/metrics/knowledge-stock?scope=${encodeURIComponent(scope)}`),
     enrichAll: (limit = 50) =>
       req<{ processed: number; errors: number; source: string; avg_fwd_citations: number }>(
         `/api/v1/metrics/enrich-all?limit=${limit}`,

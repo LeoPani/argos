@@ -15,6 +15,8 @@ import type {
   PoolListResponse, PatentPool,
   ChatThreadListResponse, ChatThread,
   MetricsResponse, MethodologyPayload,
+  MaintenanceRecommendation, InventorProfile,
+  DepartmentHealth, KnowledgeStockResponse,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -177,6 +179,38 @@ export function useMethodology() {
     "/api/v1/metrics/methodology",
     () => api.metrics.methodology(),
     { revalidateOnFocus: false }
+  );
+}
+
+export function useMaintenance(patentID: number | null) {
+  return useSWR<MaintenanceRecommendation>(
+    patentID ? `/api/v1/metrics/patent/${patentID}/maintenance` : null,
+    () => api.metrics.maintenance(patentID!),
+    SWR_OPTIONS
+  );
+}
+
+export function useInventorProfile(name: string | null) {
+  return useSWR<InventorProfile>(
+    name ? `/api/v1/metrics/inventors/${name}` : null,
+    () => api.metrics.inventor(name!),
+    SWR_OPTIONS
+  );
+}
+
+export function useDepartments() {
+  return useSWR<{ departments: DepartmentHealth[] }>(
+    "/api/v1/metrics/departments",
+    () => api.metrics.departments(),
+    SWR_OPTIONS
+  );
+}
+
+export function useKnowledgeStock(scope = "UFOP") {
+  return useSWR<KnowledgeStockResponse>(
+    `/api/v1/metrics/knowledge-stock?scope=${scope}`,
+    () => api.metrics.knowledgeStock(scope),
+    SWR_OPTIONS
   );
 }
 

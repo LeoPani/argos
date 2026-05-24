@@ -8,12 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SkeletonKPI, SkeletonList } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { usePatent, useTTContracts, useDisputes } from "@/lib/hooks";
+import { usePatent, useTTContracts, useDisputes, useMaintenance } from "@/lib/hooks";
 import { formatDate, formatBRL, ipcLabel } from "@/lib/utils";
 import type { Dispute } from "@/lib/types";
+import { MetricTooltip } from "@/components/ui/metric-tooltip";
 import {
   ArrowLeft, FileText, User, Calendar, Hash,
   BookOpen, Briefcase, Scale, Layers, AlertCircle,
+  Lightbulb, TrendingDown, RefreshCw,
 } from "lucide-react";
 
 export default function PatentDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -24,6 +26,7 @@ export default function PatentDetailPage({ params }: { params: Promise<{ id: str
   const { data: patent, error, isLoading } = usePatent(id);
   const { data: contractsData } = useTTContracts({ patent_id: String(id), limit: "20" });
   const { data: disputesData }  = useDisputes({ limit: "200" });
+  const { data: maintenance }   = useMaintenance(id);
 
   // Disputes that mention this patent (best-effort: matches kind=patent_infringement and we'd ideally hit /patents/{id}/disputes — for now use title/summary heuristic)
   const relatedDisputes: Dispute[] = (disputesData?.items ?? []).filter(
@@ -96,14 +99,19 @@ export default function PatentDetailPage({ params }: { params: Promise<{ id: str
             <p className="text-xs mb-1.5" style={{ color: "var(--text-muted)" }}>Inventores</p>
             <div className="flex gap-1.5 flex-wrap">
               {patent.inventors.map(inv => (
-                <Badge key={inv} variant="info">
-                  <User size={10} /> {inv}
-                </Badge>
+                <Link key={inv} href={`/inventors/${encodeURIComponent(inv)}`}>
+                  <Badge variant="info">
+                    <User size={10} /> {inv}
+                  </Badge>
+                </Link>
               ))}
             </div>
           </div>
         )}
       </Card>
+
+      {/* Maintenance recommendation (Schankerman-Pakes 1986) */}
+      {maintenance && <MaintenanceCard m={maintenance} /> }
 
       {/* Abstract */}
       <Card>
@@ -231,6 +239,70 @@ function Breadcrumb({ backTo, current }: { backTo: string; current: string }) {
       </Link>
       <span style={{ color: "var(--text-muted)" }}>/</span>
       <span className="text-white font-mono text-xs">{current}</span>
+    </div>
+  );
+}
+
+function MaintenanceCard({ m }: { m: import("@/lib/types").MaintenanceRecommendation }) {
+  const recMeta = {
+    keep:    { icon: RefreshCw,    label: "Manter (Keep)",      color: "#34d399" },
+    license: { icon: Lightbulb,    label: "Buscar licenciado",   color: "#fbbf24" },
+    abandon: { icon: TrendingDown, label: "Abandonar",           color: "#ef4444" },
+  }[m.recommendation];
+  const Icon = recMeta.icon;
+
+  return (
+    <Card style={{ borderColor: recMeta.color + "40" }}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Icon size={14} style={{ color: recMeta.color }} />
+          Recomendação de manutenção
+          <MetricTooltip metricID="maintenance_decision" />
+        </CardTitle>
+        <Badge variant="muted">{m.confidence}% confiança</Badge>
+      </CardHeader>
+
+      <div className="p-3 rounded-lg mb-3"
+        style={{ background: recMeta.color + "15", border: `1px solid ${recMeta.color}40` }}>
+        <div className="flex items-center gap-3">
+          <Icon size={18} style={{ color: recMeta.color }} />
+          <div>
+            <p className="text-base font-semibold" style={{ color: recMeta.color }}>
+              {recMeta.label}
+            </p>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Idade: {m.age_years}a · Restante: {m.remaining_years}a
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-4 gap-3 mb-3 text-sm">
+        <Metric label="Próxima anuidade"   value={formatBRL(m.next_annuity_brl)} />
+        <Metric label="Custo restante"     value={formatBRL(m.total_remaining_cost_brl)} />
+        <Metric label="Receita até hoje"   value={formatBRL(m.revenue_so_far_brl)} highlight />
+        <Metric label="NPV esperado"       value={formatBRL(m.expected_npv_brl)} highlight />
+      </div>
+
+      <div>
+        <p className="text-xs font-medium text-white mb-1">Justificativa</p>
+        <ul className="space-y-1">
+          {m.reasoning.map((r, i) => (
+            <li key={i} className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+              · {r}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Card>
+  );
+}
+
+function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className="p-2 rounded" style={{ background: "var(--surface-2)" }}>
+      <p className="text-xs" style={{ color: "var(--text-muted)" }}>{label}</p>
+      <p className={`text-sm ${highlight ? "text-amber-300 font-semibold" : "text-white"}`}>{value}</p>
     </div>
   );
 }
