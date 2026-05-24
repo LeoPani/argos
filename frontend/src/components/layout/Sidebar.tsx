@@ -16,13 +16,15 @@ import {
   Award,
   Sparkles,
   Briefcase,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 
 const nav = [
   { href: "/dashboard", icon: LayoutDashboard, label: "BI & Analytics" },
   { href: "/metricas",  icon: Award, label: "Métricas Acadêmicas" },
   { href: "/smart-filing", icon: Sparkles, label: "Smart Filing" },
-  { href: "/marketplace",  icon: Briefcase, label: "TT Marketplace" },
+  { href: "/marketplace",  icon: Briefcase,    label: "TT Marketplace" },
+  { href: "/calendario",   icon: CalendarIcon, label: "Calendário NIT" },
   { href: "/consultas", icon: Search, label: "Consultas" },
   { href: "/portfolio", icon: FolderOpen, label: "Portfolio de PI" },
   { href: "/arbitragem", icon: Scale, label: "Arbitragem" },
@@ -109,13 +111,50 @@ export function Sidebar() {
   );
 }
 
+// ArgosPanoptesLogo — homenagem ao gigante de muitos olhos da mitologia grega.
+// Olho central dominante + constelação de pequenos olhos em arranjo hexagonal.
+// Sem agressividade: pupilas circulares, sem dentes/garras, paleta indigo
+// contemplativa. Inspiração Lilith mas pacificada.
 function EyeLogo() {
   return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-      <ellipse cx="16" cy="16" rx="14" ry="10" stroke="#6366f1" strokeWidth="1.5" />
-      <circle cx="16" cy="16" r="5" stroke="#6366f1" strokeWidth="1.5" />
-      <circle cx="16" cy="16" r="2.5" fill="#6366f1" />
-      <circle cx="17.5" cy="14.5" r="0.8" fill="white" opacity="0.6" />
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none" aria-label="Argos">
+      {/* Halo externo */}
+      <circle cx="18" cy="18" r="17" stroke="#6366f1" strokeWidth="0.8" strokeOpacity="0.3" />
+
+      {/* Olho central (Argos) */}
+      <ellipse cx="18" cy="18" rx="9" ry="6.5" stroke="#818cf8" strokeWidth="1.4" fill="rgba(99,102,241,0.08)" />
+      <circle cx="18" cy="18" r="3.5" fill="#6366f1" />
+      <circle cx="18.8" cy="17.2" r="0.8" fill="white" opacity="0.7" />
+
+      {/* Olhos secundários em arranjo hexagonal (6 olhos = simbólico) */}
+      {/* Topo */}
+      <circle cx="18" cy="4.5" r="1.4" fill="#6366f1" opacity="0.55" />
+      <circle cx="18" cy="4.5" r="0.4" fill="white" opacity="0.6" />
+      {/* Topo-direita */}
+      <circle cx="30" cy="11" r="1.4" fill="#6366f1" opacity="0.55" />
+      <circle cx="30" cy="11" r="0.4" fill="white" opacity="0.6" />
+      {/* Bottom-direita */}
+      <circle cx="30" cy="25" r="1.4" fill="#6366f1" opacity="0.55" />
+      <circle cx="30" cy="25" r="0.4" fill="white" opacity="0.6" />
+      {/* Bottom */}
+      <circle cx="18" cy="31.5" r="1.4" fill="#6366f1" opacity="0.55" />
+      <circle cx="18" cy="31.5" r="0.4" fill="white" opacity="0.6" />
+      {/* Bottom-esquerda */}
+      <circle cx="6" cy="25" r="1.4" fill="#6366f1" opacity="0.55" />
+      <circle cx="6" cy="25" r="0.4" fill="white" opacity="0.6" />
+      {/* Topo-esquerda */}
+      <circle cx="6" cy="11" r="1.4" fill="#6366f1" opacity="0.55" />
+      <circle cx="6" cy="11" r="0.4" fill="white" opacity="0.6" />
+
+      {/* Linhas sutis ligando olho central aos secundários (network of vigilance) */}
+      <g stroke="#6366f1" strokeOpacity="0.18" strokeWidth="0.4">
+        <line x1="18" y1="11.5" x2="18" y2="5.5" />
+        <line x1="25" y1="14"   x2="29" y2="11.5" />
+        <line x1="25" y1="22"   x2="29" y2="24.5" />
+        <line x1="18" y1="24.5" x2="18" y2="30.5" />
+        <line x1="11" y1="22"   x2="7"  y2="24.5" />
+        <line x1="11" y1="14"   x2="7"  y2="11.5" />
+      </g>
     </svg>
   );
 }

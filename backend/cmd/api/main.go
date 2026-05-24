@@ -133,6 +133,8 @@ func run() error {
 
 	citationNetSvc := service.NewCitationNetworkService(db)
 
+	calendarSvc := service.NewCalendarService(db)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -156,6 +158,7 @@ func run() error {
 		SmartFilingService:     smartFilingSvc,
 		MarketplaceService:     marketplaceSvc,
 		CitationNetworkService: citationNetSvc,
+		CalendarService:        calendarSvc,
 	})
 
 	// --- HTTP server ---

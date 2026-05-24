@@ -20,8 +20,20 @@ import (
 )
 
 const (
-	oaiEndpoint = "https://repositorio.ufop.br/oai/request"
+	// DSpace 7 oficial endpoint (path /server/oai/request).
+	// O legado /oai/request redireciona para a SPA Angular e retorna HTML, não XML.
+	oaiEndpoint = "https://repositorio.ufop.br/server/oai/request"
 	oaiSource   = domain.PublicationSource("ufop_oai")
+)
+
+// Sets oficiais do DSpace UFOP (descobertos via ListSets).
+// Mantemos como constantes para validação acadêmica + facilidade.
+const (
+	UFOPSetDepDireito    = "com_123456789_656"   // DEDIR - Departamento de Direito
+	UFOPSetEscolaDireito = "com_123456789_653"   // EDTM - Escola de Direito, Turismo e Museologia
+	UFOPSetPPGDireito    = "com_123456789_10890" // PPG em Direito
+	UFOPSetDepEngMinas   = "com_123456789_510"   // DEMIN - Engenharia de Minas
+	UFOPSetEscolaMinas   = "com_123456789_6"     // EM - Escola de Minas (completa)
 )
 
 // OAIClient fetches records from UFOP's OAI-PMH repository.
@@ -41,10 +53,10 @@ func NewOAIClient(log *slog.Logger) *OAIClient {
 // ─── OAI-PMH XML structs ──────────────────────────────────────────────────────
 
 type oaiResponse struct {
-	XMLName          xml.Name          `xml:"OAI-PMH"`
-	Error            oaiError          `xml:"error"`
-	ListRecords      oaiListRecords    `xml:"ListRecords"`
-	ResumptionToken  string            `xml:"ListRecords>resumptionToken"`
+	XMLName     xml.Name       `xml:"OAI-PMH"`
+	Error       oaiError       `xml:"error"`
+	ListRecords oaiListRecords `xml:"ListRecords"`
+	// ResumptionToken já está dentro de ListRecords (nested struct), não duplicar.
 }
 
 type oaiError struct {
@@ -91,7 +103,8 @@ type HarvestResult struct {
 
 // Harvest fetches all records from the UFOP repository since a given date.
 // Use from="" to fetch everything (slow on first run).
-func (c *OAIClient) Harvest(ctx context.Context, from string, maxRecords int) (*HarvestResult, error) {
+// Use set="" para todo o repositório, ou um setSpec (ex: UFOPSetDepDireito).
+func (c *OAIClient) Harvest(ctx context.Context, from, set string, maxRecords int) (*HarvestResult, error) {
 	result := &HarvestResult{}
 
 	params := url.Values{
@@ -100,6 +113,9 @@ func (c *OAIClient) Harvest(ctx context.Context, from string, maxRecords int) (*
 	}
 	if from != "" {
 		params.Set("from", from)
+	}
+	if set != "" {
+		params.Set("set", set)
 	}
 
 	resumptionToken := ""

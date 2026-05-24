@@ -35,6 +35,7 @@ import type {
   DepartmentHealth, KnowledgeStockResponse,
   RoyaltyForecast, FilingSuggestion,
   MarketplaceResponse, CitationNetwork,
+  CalendarResponse,
 } from "./types";
 
 export const api = {
@@ -113,6 +114,16 @@ export const api = {
   citations: {
     network: (patentID: number) =>
       req<CitationNetwork>(`/api/v1/citations/network/${patentID}`),
+  },
+
+  calendar: {
+    get: (from?: string, to?: string) => {
+      const p = new URLSearchParams();
+      if (from) p.set("from", from);
+      if (to)   p.set("to",   to);
+      const qs = p.toString();
+      return req<CalendarResponse>(`/api/v1/calendar${qs ? "?" + qs : ""}`);
+    },
   },
 
   portfolio: {

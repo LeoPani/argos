@@ -98,6 +98,60 @@ func (s *UFOPService) UpdateStatus(ctx context.Context, id int64, status domain.
 
 // ─── Harvest methods (used by background worker) ──────────────────────────────
 
+// HarvestOAISet — versão segmentada por setSpec (community/coleção DSpace).
+// Útil pra trabalhar com departamentos específicos:
+//   ufop.UFOPSetDepDireito, ufop.UFOPSetDepEngMinas, etc.
+func (s *UFOPService) HarvestOAISet(ctx context.Context, from, set string, maxRecords int) (HarvestStats, error) {
+	stats := HarvestStats{}
+
+	result, err := s.oai.Harvest(ctx, from, set, maxRecords)
+	if err != nil {
+		return stats, fmt.Errorf("oai harvest set=%s: %w", set, err)
+	}
+	stats.Fetched = result.Total
+
+	for _, pub := range result.Publications {
+		if ctx.Err() != nil {
+			return stats, ctx.Err()
+		}
+
+		if err := s.pubRepo.Upsert(ctx, pub); err != nil {
+			s.log.Warn("ufop oai set: persist publication failed",
+				"set", set, "external_id", pub.ExternalID, "err", err)
+			stats.Errors++
+			continue
+		}
+
+		in := ufop.AnalyzeInput{
+			Title:         pub.Title,
+			Abstract:      pub.Abstract,
+			Authors:       pub.Authors,
+			PublicationID: &pub.ID,
+			ExternalID:    pub.ExternalID,
+			Source:        domain.UFOPSourceOAI,
+			URL:           pub.DOI,
+			PublishedAt:   pub.PublishedDate,
+			Department:    departmentFromAffiliations(pub.Affiliations),
+		}
+		opp, err := s.analyzer.Analyze(ctx, in)
+		if err != nil {
+			stats.Errors++
+			continue
+		}
+
+		if err := s.repo.Upsert(ctx, opp); err != nil {
+			stats.Errors++
+			continue
+		}
+		stats.Upserted++
+	}
+
+	s.log.Info("ufop oai set: harvest complete",
+		"set", set, "fetched", stats.Fetched,
+		"upserted", stats.Upserted, "errors", stats.Errors)
+	return stats, nil
+}
+
 // HarvestOAI fetches recent publications from UFOP's OAI-PMH repository,
 // scores each one and persists the opportunity.
 //
@@ -106,7 +160,7 @@ func (s *UFOPService) UpdateStatus(ctx context.Context, id int64, status domain.
 func (s *UFOPService) HarvestOAI(ctx context.Context, from string, maxRecords int) (HarvestStats, error) {
 	stats := HarvestStats{}
 
-	result, err := s.oai.Harvest(ctx, from, maxRecords)
+	result, err := s.oai.Harvest(ctx, from, "", maxRecords)
 	if err != nil {
 		return stats, fmt.Errorf("oai harvest: %w", err)
 	}

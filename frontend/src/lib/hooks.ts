@@ -19,6 +19,7 @@ import type {
   DepartmentHealth, KnowledgeStockResponse,
   RoyaltyForecast,
   MarketplaceResponse, CitationNetwork,
+  CalendarResponse,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -237,6 +238,11 @@ export function useCitationNetwork(patentID: number | null) {
     () => api.citations.network(patentID!),
     SWR_OPTIONS
   );
+}
+
+export function useCalendar(from?: string, to?: string) {
+  const key = `/api/v1/calendar:${from ?? ""}:${to ?? ""}`;
+  return useSWR<CalendarResponse>(key, () => api.calendar.get(from, to), SWR_OPTIONS);
 }
 
 // ─── Watchlists / Alerts ─────────────────────────────────────────────────────

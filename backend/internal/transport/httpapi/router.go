@@ -28,6 +28,7 @@ type Deps struct {
 	SmartFilingService *service.SmartFilingService
 	MarketplaceService *service.MarketplaceService
 	CitationNetworkService *service.CitationNetworkService
+	CalendarService        *service.CalendarService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -149,6 +150,12 @@ func NewRouter(deps Deps) http.Handler {
 	if deps.CitationNetworkService != nil {
 		cn := NewCitationNetworkHandler(deps.CitationNetworkService)
 		mux.HandleFunc("GET /api/v1/citations/network/{id}", cn.Build)
+	}
+
+	// ── Calendar NIT-UFOP ─────────────────────────────────────────────────
+	if deps.CalendarService != nil {
+		cal := NewCalendarHandler(deps.CalendarService)
+		mux.HandleFunc("GET /api/v1/calendar", cal.Get)
 	}
 
 	// ── Smart Filing Assistant ────────────────────────────────────────────

@@ -48,6 +48,15 @@ run-worker: ## Run worker
 seed: ## Populate database with realistic demo data (~150 records)
 	go run ./cmd/seed
 
+harvest-ufop: ## Harvest publicações REAIS UFOP (Direito + Eng Minas) via OAI-PMH
+	go run ./cmd/harvest-ufop all 50
+
+harvest-direito: ## Só Direito (DEDIR + PPG Direito) - até 100 records
+	go run ./cmd/harvest-ufop direito 100
+
+harvest-minas: ## Só Engenharia de Minas - até 100 records
+	go run ./cmd/harvest-ufop minas 100
+
 # --- Quality ---
 
 test: ## Run all tests

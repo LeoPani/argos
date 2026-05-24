@@ -620,6 +620,30 @@ export interface CitationNetwork {
   };
 }
 
+// ─── Calendar NIT-UFOP ───────────────────────────────────────────────────────
+
+export interface CalendarEvent {
+  id: string;
+  date: string;            // ISO
+  kind: "annuity" | "renewal" | "milestone" | "dispute" | "filing";
+  title: string;
+  description: string;
+  amount_brl?: number;
+  entity_type: "patent" | "trademark" | "contract" | "dispute";
+  entity_id: number;
+  entity_ref: string;
+  priority: "critical" | "high" | "medium" | "low";
+  url?: string;
+}
+
+export interface CalendarResponse {
+  from: string;
+  to: string;
+  events: CalendarEvent[];
+  count: number;
+  by_kind: Record<string, number>;
+}
+
 // ─── Global search ───────────────────────────────────────────────────────────
 
 export interface SearchHit {
