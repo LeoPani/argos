@@ -14,6 +14,7 @@ import type {
   TTContractListResponse,
   PoolListResponse, PatentPool,
   ChatThreadListResponse, ChatThread,
+  MetricsResponse, MethodologyPayload,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -157,6 +158,24 @@ export function useChatThread(id: number | null) {
   return useSWR<ChatThread>(
     id ? `/api/v1/chat/threads/${id}` : null,
     () => api.chat.getThread(id!),
+    { revalidateOnFocus: false }
+  );
+}
+
+// ─── Academic metrics ────────────────────────────────────────────────────────
+
+export function useMetrics(scope = "UFOP") {
+  return useSWR<MetricsResponse>(
+    `/api/v1/metrics?scope=${scope}`,
+    () => api.metrics.snapshot(scope),
+    SWR_OPTIONS
+  );
+}
+
+export function useMethodology() {
+  return useSWR<MethodologyPayload>(
+    "/api/v1/metrics/methodology",
+    () => api.metrics.methodology(),
     { revalidateOnFocus: false }
   );
 }

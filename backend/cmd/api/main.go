@@ -30,6 +30,7 @@ import (
 	pg "github.com/LeoPani/argos/backend/internal/repository/postgres"
 	"github.com/LeoPani/argos/backend/internal/service"
 	"github.com/LeoPani/argos/backend/internal/transport/httpapi"
+	"github.com/LeoPani/argos/backend/internal/worker/lens"
 	"github.com/LeoPani/argos/backend/internal/worker/ufop"
 )
 
@@ -121,6 +122,11 @@ func run() error {
 
 	searchSvc := service.NewSearchService(db)
 
+	metricsSvc := service.NewMetricsService(db)
+
+	lensPatentClient := lens.NewPatentClient()
+	enrichmentSvc := service.NewEnrichmentService(db, patentRepo, lensPatentClient)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -139,6 +145,8 @@ func run() error {
 		PoolService:       poolSvc,
 		ChatService:       chatSvc,
 		SearchService:     searchSvc,
+		MetricsService:    metricsSvc,
+		EnrichmentService: enrichmentSvc,
 	})
 
 	// --- HTTP server ---

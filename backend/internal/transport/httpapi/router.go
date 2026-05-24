@@ -23,6 +23,8 @@ type Deps struct {
 	PoolService       *service.PoolService
 	ChatService       *service.ChatService
 	SearchService     *service.SearchService
+	MetricsService    *service.MetricsService
+	EnrichmentService *service.EnrichmentService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -118,6 +120,22 @@ func NewRouter(deps Deps) http.Handler {
 		mux.HandleFunc("DELETE /api/v1/pools/{id}",                pool.Delete)
 		mux.HandleFunc("POST /api/v1/pools/{id}/members",          pool.AddMember)
 		mux.HandleFunc("DELETE /api/v1/pools/{id}/members/{patentId}", pool.RemoveMember)
+	}
+
+	// ── Academic IP metrics ───────────────────────────────────────────────
+	if deps.MetricsService != nil {
+		m := NewMetricsHandler(deps.MetricsService)
+		mux.HandleFunc("GET /api/v1/metrics",                m.Snapshot)
+		mux.HandleFunc("GET /api/v1/metrics/health-score",   m.HealthScore)
+		mux.HandleFunc("GET /api/v1/metrics/patent/{id}/pci", m.PCI)
+		mux.HandleFunc("GET /api/v1/metrics/methodology",    m.Methodology)
+	}
+
+	// ── Lens.org enrichment ───────────────────────────────────────────────
+	if deps.EnrichmentService != nil {
+		e := NewEnrichmentHandler(deps.EnrichmentService)
+		mux.HandleFunc("POST /api/v1/metrics/enrich-all",      e.EnrichAll)
+		mux.HandleFunc("POST /api/v1/metrics/enrich/{id}",     e.EnrichOne)
 	}
 
 	// ── Global federated search ───────────────────────────────────────────

@@ -355,6 +355,104 @@ export interface RoyaltyEntry {
   status: "received" | "pending" | "upcoming";
 }
 
+// ─── Academic metrics (AUTM / HJT / Etzkowitz / Lanjouw-Schankerman) ─────────
+
+export interface AUTMHealthScore {
+  scope: string;
+  patents: number;
+  inventors: number;
+  p1_disclosures: number;
+  p2_grant_rate: number;
+  p3_license_rate: number;
+  p4_revenue_per_asset: number;
+  p5_time_to_grant: number;
+  composite_score: number;
+  methodology: string;
+  benchmarks: Record<string, number>;
+}
+
+export interface TTFunnel {
+  disclosures: number;
+  patents_filed: number;
+  patents_granted: number;
+  active_contracts: number;
+  total_revenue_brl: number;
+  rate_disclosure_to_file: number;
+  rate_file_to_grant: number;
+  rate_grant_to_contract: number;
+  methodology: string;
+}
+
+export interface HJTDiversity {
+  scope: string;
+  ipc_categories_present: number;
+  diversity_index: number;
+  specialization_index: number;
+  methodology: string;
+}
+
+export interface TripleHelixScore {
+  u_count: number;
+  i_count: number;
+  g_count: number;
+  collab_rate: number;
+  helix_score: number;
+  methodology: string;
+}
+
+export interface InventorMetric {
+  name: string;
+  total_patents: number;
+  granted_patents: number;
+  h_index_proxy: number;
+  ipc_breadth: number;
+  department?: string;
+}
+
+export interface MetricsResponse {
+  health_score: AUTMHealthScore;
+  tt_funnel: TTFunnel;
+  ipc_diversity: HJTDiversity;
+  triple_helix: TripleHelixScore;
+  top_inventors: InventorMetric[];
+}
+
+export interface PCIScore {
+  patent_id: number;
+  forward_citations: number;
+  backward_citations: number;
+  family_size: number;
+  claims_count: number;
+  pci_score: number;
+  methodology: string;
+  weights: string;
+  has_citation_data: boolean;
+  source: "lens" | "mock" | "none";
+}
+
+export interface MethodologyComponent {
+  key: string;
+  label: string;
+  definition: string;
+}
+
+export interface MethodologyMetric {
+  id: string;
+  name: string;
+  description: string;
+  formula: string;
+  components?: MethodologyComponent[];
+  interpretation?: string;
+  normalization?: string;
+  data_requirements?: string;
+  references: string[];
+}
+
+export interface MethodologyPayload {
+  version: string;
+  metrics: MethodologyMetric[];
+}
+
 // ─── Global search ───────────────────────────────────────────────────────────
 
 export interface SearchHit {

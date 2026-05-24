@@ -30,6 +30,7 @@ import type {
   PatentPool, PoolListResponse, PoolKind, PoolMember,
   ChatThread, ChatThreadListResponse, ChatRole, ChatMessage,
   SearchResponse,
+  MetricsResponse, MethodologyPayload, PCIScore,
 } from "./types";
 
 export const api = {
@@ -57,6 +58,23 @@ export const api = {
   search: {
     query: (q: string, limit = 6) =>
       req<SearchResponse>(`/api/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  },
+
+  metrics: {
+    snapshot: (scope = "UFOP") =>
+      req<MetricsResponse>(`/api/v1/metrics?scope=${encodeURIComponent(scope)}`),
+    methodology: () => req<MethodologyPayload>("/api/v1/metrics/methodology"),
+    pci: (patentID: number) => req<PCIScore>(`/api/v1/metrics/patent/${patentID}/pci`),
+    enrichAll: (limit = 50) =>
+      req<{ processed: number; errors: number; source: string; avg_fwd_citations: number }>(
+        `/api/v1/metrics/enrich-all?limit=${limit}`,
+        { method: "POST" },
+      ),
+    enrichOne: (patentID: number) =>
+      req<{ patent_id: number; lens_id: string; forward_citations: number; backward_citations: number; family_size: number; claims_count: number; source: string }>(
+        `/api/v1/metrics/enrich/${patentID}`,
+        { method: "POST" },
+      ),
   },
 
   portfolio: {
