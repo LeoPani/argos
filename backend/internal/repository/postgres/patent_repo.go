@@ -1,5 +1,3 @@
-// Package postgres provides PostgreSQL implementations of the repository
-// contracts declared in internal/repository.
 package postgres
 
 import (
@@ -15,31 +13,23 @@ import (
 	"github.com/LeoPani/argos/backend/internal/repository"
 )
 
-// pgUniqueViolation is the SQLSTATE for unique-constraint violations.
 const pgUniqueViolation = "23505"
 
-// PatentRepo implements repository.PatentRepository against PostgreSQL.
 type PatentRepo struct {
 	db *sql.DB
 }
 
-// Compile-time assertion that the interface is satisfied.
 var _ repository.PatentRepository = (*PatentRepo)(nil)
 
-// NewPatentRepo wraps an existing pool. The repo never closes it.
 func NewPatentRepo(db *sql.DB) *PatentRepo {
 	return &PatentRepo{db: db}
 }
 
-// selectPatentColumns is reused by every SELECT to keep column order
-// in sync with scanPatent. If you add a column, update both.
 const selectPatentColumns = `
 	id, application_number, title, abstract, applicant, inventors,
 	filing_date, publication_date, ipc_category, ipc_code,
 	rpi_issue, status, created_at, updated_at`
 
-// Insert persists a new patent and populates ID + timestamps in-place.
-// Returns domain.ErrDuplicate if application_number already exists.
 func (r *PatentRepo) Insert(ctx context.Context, p *domain.Patent) error {
 	const query = `
 		INSERT INTO patents (
@@ -50,7 +40,6 @@ func (r *PatentRepo) Insert(ctx context.Context, p *domain.Patent) error {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at, updated_at`
 
-	// ipc_category column is SMALLINT NULL; store NULL for "unknown".
 	var ipcCategory sql.NullInt16
 	if p.IPCCategory.IsValid() {
 		ipcCategory = sql.NullInt16{Int16: int16(p.IPCCategory), Valid: true}
@@ -61,13 +50,20 @@ func (r *PatentRepo) Insert(ctx context.Context, p *domain.Patent) error {
 		status = domain.PatentStatusPending
 	}
 
+	// FIX: inventors column is TEXT[] NOT NULL — coerce nil to []string{}
+	// so pq.Array sends '{}' instead of NULL.
+	inventors := p.Inventors
+	if inventors == nil {
+		inventors = []string{}
+	}
+
 	err := r.db.QueryRowContext(ctx, query,
 		p.ApplicationNumber,
 		p.Title,
 		p.Abstract,
 		p.Applicant,
-		pq.Array(p.Inventors), // TEXT[] driver helper
-		p.FilingDate,          // *time.Time; nil → NULL
+		pq.Array(inventors),
+		p.FilingDate,
 		p.PublicationDate,
 		ipcCategory,
 		p.IPCCode,
@@ -84,10 +80,10 @@ func (r *PatentRepo) Insert(ctx context.Context, p *domain.Patent) error {
 		return fmt.Errorf("insert patent %q: %w", p.ApplicationNumber, err)
 	}
 	p.Status = status
+	p.Inventors = inventors
 	return nil
 }
 
-// GetByID fetches one patent or returns domain.ErrNotFound.
 func (r *PatentRepo) GetByID(ctx context.Context, id int64) (*domain.Patent, error) {
 	query := "SELECT " + selectPatentColumns + " FROM patents WHERE id = $1"
 	row := r.db.QueryRowContext(ctx, query, id)
@@ -102,7 +98,6 @@ func (r *PatentRepo) GetByID(ctx context.Context, id int64) (*domain.Patent, err
 	return p, nil
 }
 
-// GetByApplicationNumber fetches by INPI application number.
 func (r *PatentRepo) GetByApplicationNumber(ctx context.Context, appNum string) (*domain.Patent, error) {
 	query := "SELECT " + selectPatentColumns + " FROM patents WHERE application_number = $1"
 	row := r.db.QueryRowContext(ctx, query, appNum)
@@ -117,7 +112,6 @@ func (r *PatentRepo) GetByApplicationNumber(ctx context.Context, appNum string) 
 	return p, nil
 }
 
-// List returns patents matching the filter. Caller MUST Normalize() first.
 func (r *PatentRepo) List(ctx context.Context, f domain.PatentFilter) ([]domain.Patent, error) {
 	where, args := buildPatentWhere(&f)
 
@@ -147,7 +141,6 @@ func (r *PatentRepo) List(ctx context.Context, f domain.PatentFilter) ([]domain.
 	return out, nil
 }
 
-// Count returns the total matching the filter, ignoring pagination.
 func (r *PatentRepo) Count(ctx context.Context, f domain.PatentFilter) (int64, error) {
 	where, args := buildPatentWhere(&f)
 	query := "SELECT COUNT(*) FROM patents " + where
@@ -159,16 +152,10 @@ func (r *PatentRepo) Count(ctx context.Context, f domain.PatentFilter) (int64, e
 	return total, nil
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// scanner abstracts *sql.Row and *sql.Rows so scanPatent works with both.
 type scanner interface {
 	Scan(dest ...any) error
 }
 
-// scanPatent maps one row into *domain.Patent, handling nullable columns.
 func scanPatent(s scanner) (*domain.Patent, error) {
 	var (
 		p          domain.Patent
@@ -215,8 +202,6 @@ func scanPatent(s scanner) (*domain.Patent, error) {
 	return &p, nil
 }
 
-// buildPatentWhere assembles a parameterized WHERE clause. Returns
-// ("", []) if no predicates apply. Placeholders start at $1.
 func buildPatentWhere(f *domain.PatentFilter) (string, []any) {
 	var (
 		clauses []string
