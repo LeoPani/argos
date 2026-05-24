@@ -15,6 +15,7 @@ type Deps struct {
 	DisputeService   *service.DisputeService
 	PriorArtService  *service.PriorArtService
 	UFOPService      *service.UFOPService
+	PortfolioService *service.PortfolioService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -67,6 +68,12 @@ func NewRouter(deps Deps) http.Handler {
 	if deps.PriorArtService != nil {
 		priorArt := NewPriorArtHandler(deps.PriorArtService)
 		mux.HandleFunc("GET /api/v1/prior-art", priorArt.Search)
+	}
+
+	// ── Portfolio aggregation ─────────────────────────────────────────────
+	if deps.PortfolioService != nil {
+		portfolio := NewPortfolioHandler(deps.PortfolioService)
+		mux.HandleFunc("GET /api/v1/portfolio", portfolio.Get)
 	}
 
 	// ── UFOP Intelligence (Phase E) ───────────────────────────────────────

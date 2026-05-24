@@ -41,6 +41,7 @@ export interface Trademark {
 // ─── Portfolio ───────────────────────────────────────────────────────────────
 
 export type AssetType = "PI" | "MU" | "TM" | "DP";
+export type AssetStatus = "active" | "pending" | "expired" | "opposition";
 
 export interface PortfolioAsset {
   id: string;
@@ -48,7 +49,7 @@ export interface PortfolioAsset {
   number: string;
   title: string;
   owner: string;
-  status: "active" | "pending" | "expired" | "opposition";
+  status: AssetStatus;
   filing_date: string;
   expiry_date: string;
   next_fee_date: string | null;
@@ -62,8 +63,12 @@ export interface PortfolioAsset {
 export interface CostSummary {
   monthly: number;
   annual: number;
-  total_period: number;
-  currency: "BRL";
+  total: number;
+}
+
+export interface CostPoint {
+  year: string;
+  value: number;
 }
 
 export interface AIOpportunity {
@@ -75,6 +80,14 @@ export interface AIOpportunity {
   estimated_cost?: number;
   confidence: number; // 0-100
   action_label: string;
+}
+
+/** Full response from GET /api/v1/portfolio */
+export interface PortfolioResponse {
+  assets: PortfolioAsset[];
+  cost_summary: CostSummary;
+  cost_timeline: CostPoint[];
+  ai_opportunities: AIOpportunity[];
 }
 
 // ─── Arbitration ─────────────────────────────────────────────────────────────

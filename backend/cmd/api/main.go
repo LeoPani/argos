@@ -100,6 +100,8 @@ func run() error {
 	analyzer := ufop.NewAnalyzer(aiSvc)
 	ufopSvc := service.NewUFOPService(ufopRepo, publicationRepo, oaiClient, portalScraper, analyzer, log)
 
+	portfolioSvc := service.NewPortfolioService(patentRepo, trademarkRepo, ufopRepo)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -110,6 +112,7 @@ func run() error {
 		DisputeService:   disputeSvc,
 		PriorArtService:  priorArtSvc,
 		UFOPService:      ufopSvc,
+		PortfolioService: portfolioSvc,
 	})
 
 	// --- HTTP server ---

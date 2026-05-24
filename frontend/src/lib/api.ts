@@ -17,7 +17,7 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ─── Patents ──────────────────────────────────────────────────────────────────
 
-import type { Patent, PatentListResponse, UFOPListResponse, UFOPOpportunity, UFOPStatus } from "./types";
+import type { Patent, PatentListResponse, UFOPListResponse, UFOPOpportunity, UFOPStatus, PortfolioResponse } from "./types";
 
 export const api = {
   patents: {
@@ -35,6 +35,10 @@ export const api = {
 
   health: {
     check: () => req<{ status: string }>("/health"),
+  },
+
+  portfolio: {
+    get: () => req<PortfolioResponse>("/api/v1/portfolio"),
   },
 
   ufop: {

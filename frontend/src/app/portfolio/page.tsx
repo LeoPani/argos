@@ -4,18 +4,22 @@ import { useState } from "react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { mockPortfolioAssets, mockAIOpportunities, mockCostTimeline } from "@/lib/mock-data";
+import { mockAIOpportunities, mockCostTimeline, mockPortfolioAssets } from "@/lib/mock-data";
 import { formatBRL, formatDate, daysUntil, cn } from "@/lib/utils";
-import type { PortfolioAsset, AIOpportunity } from "@/lib/types";
+import type { PortfolioAsset, AIOpportunity, CostPoint } from "@/lib/types";
+import { usePortfolio } from "@/lib/hooks";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
   TrendingUp, AlertCircle, Search, Plus, Link2,
-  FileText, Tag, Cpu, Package, Lightbulb, ShieldAlert
+  FileText, Tag, Cpu, Package, Lightbulb, ShieldAlert,
+  RefreshCw,
 } from "lucide-react";
 
 type Tab = "own" | "third";
+
+// ─── icon / badge maps ────────────────────────────────────────────────────────
 
 const assetTypeIcon: Record<string, React.ReactNode> = {
   PI: <FileText size={14} className="text-indigo-400" />,
@@ -29,31 +33,52 @@ const assetTypeBadge: Record<string, "default" | "info" | "warning" | "muted"> =
 };
 
 function statusBadge(status: PortfolioAsset["status"]) {
-  const map = { active: "success", pending: "warning", expired: "muted", opposition: "danger" } as const;
-  const labels = { active: "Ativa", pending: "Pendente", expired: "Expirada", opposition: "Oposição" };
-  return <Badge variant={map[status]}>{labels[status]}</Badge>;
+  const map = {
+    active:    { variant: "success"  as const, label: "Ativa" },
+    pending:   { variant: "warning"  as const, label: "Pendente" },
+    expired:   { variant: "muted"    as const, label: "Expirada" },
+    opposition:{ variant: "danger"   as const, label: "Oposição" },
+  };
+  const { variant, label } = map[status] ?? map.pending;
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
 function DeadlinePill({ date }: { date: string | null }) {
   const days = daysUntil(date);
   if (days === null) return <span style={{ color: "var(--text-muted)" }}>—</span>;
-  if (days < 0) return <Badge variant="muted">Vencida</Badge>;
+  if (days < 0)   return <Badge variant="muted">Vencida</Badge>;
   if (days <= 30) return <Badge variant="danger">⚠ {days}d</Badge>;
   if (days <= 90) return <Badge variant="warning">{days}d</Badge>;
   return <Badge variant="success">{formatDate(date)}</Badge>;
 }
 
-const totalCosts = mockPortfolioAssets.reduce(
-  (acc, a) => ({ monthly: acc.monthly + a.cost_monthly, annual: acc.annual + a.cost_annual, total: acc.total + a.cost_total }),
-  { monthly: 0, annual: 0, total: 0 }
-);
+// ─── main page ────────────────────────────────────────────────────────────────
 
 export default function PortfolioPage() {
-  const [tab, setTab] = useState<Tab>("own");
+  const [tab, setTab]                 = useState<Tab>("own");
   const [searchQuery, setSearchQuery] = useState("");
   const [thirdPartyQuery, setThirdPartyQuery] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]         = useState(false);
   const [thirdPartyResult, setThirdPartyResult] = useState(false);
+
+  const { data, error, mutate } = usePortfolio();
+
+  const isLive = !error && !!data;
+
+  const assets: PortfolioAsset[]       = isLive ? data!.assets          : mockPortfolioAssets;
+  const timeline: CostPoint[]          = isLive ? data!.cost_timeline    : mockCostTimeline;
+  const aiOpps: AIOpportunity[]        = isLive ? data!.ai_opportunities : mockAIOpportunities;
+  const summary = isLive
+    ? data!.cost_summary
+    : {
+        monthly: mockPortfolioAssets.reduce((s, a) => s + a.cost_monthly, 0),
+        annual:  mockPortfolioAssets.reduce((s, a) => s + a.cost_annual, 0),
+        total:   mockPortfolioAssets.reduce((s, a) => s + a.cost_total, 0),
+      };
+
+  const filtered = assets.filter(
+    a => !searchQuery || a.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   async function estimateThirdParty() {
     if (!thirdPartyQuery.trim()) return;
@@ -65,6 +90,7 @@ export default function PortfolioPage() {
 
   return (
     <div className="p-8 space-y-6">
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Portfolio de PI</h1>
@@ -72,10 +98,22 @@ export default function PortfolioPage() {
             Gestão de ativos, prazos, custos e oportunidades detectadas por IA
           </p>
         </div>
-        <Button size="sm">
-          <Plus size={14} />
-          Adicionar ativo
-        </Button>
+        <div className="flex items-center gap-2">
+          {isLive ? (
+            <span className="text-xs text-emerald-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+              dados ao vivo
+            </span>
+          ) : (
+            <span className="text-xs text-amber-400">modo offline</span>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => mutate()}>
+            <RefreshCw size={13} /> Atualizar
+          </Button>
+          <Button size="sm">
+            <Plus size={14} /> Adicionar ativo
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -83,7 +121,10 @@ export default function PortfolioPage() {
         {(["own", "third"] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={cn("px-4 py-2 rounded-md text-sm transition-all", tab === t ? "text-white font-medium" : "hover:text-white")}
-            style={{ background: tab === t ? "var(--accent)" : "transparent", color: tab === t ? "white" : "var(--text-muted)" }}>
+            style={{
+              background: tab === t ? "var(--accent)" : "transparent",
+              color: tab === t ? "white" : "var(--text-muted)",
+            }}>
             {t === "own" ? "Meu Portfolio" : "Estimar Terceiro"}
           </button>
         ))}
@@ -91,12 +132,20 @@ export default function PortfolioPage() {
 
       {tab === "own" ? (
         <>
-          {/* Cost Summary */}
-          <div className="grid grid-cols-3 gap-4">
+          {/* KPIs */}
+          <div className="grid grid-cols-4 gap-4">
+            <Card>
+              <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Total de ativos</p>
+              <p className="text-2xl font-bold text-white">{assets.length}</p>
+              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                {assets.filter(a => a.type === "PI" || a.type === "MU").length} patentes ·{" "}
+                {assets.filter(a => a.type === "TM").length} marcas
+              </p>
+            </Card>
             {[
-              { label: "Custo Mensal", value: totalCosts.monthly, sub: "estimado" },
-              { label: "Custo Anual", value: totalCosts.annual, sub: "estimado" },
-              { label: "Custo Total (período)", value: totalCosts.total, sub: "até vencimento" },
+              { label: "Custo Mensal",          value: summary.monthly, sub: "estimado" },
+              { label: "Custo Anual",           value: summary.annual,  sub: "estimado" },
+              { label: "Custo Total (período)", value: summary.total,   sub: "até vencimento" },
             ].map(({ label, value, sub }) => (
               <Card key={label}>
                 <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{label}</p>
@@ -109,17 +158,19 @@ export default function PortfolioPage() {
           {/* Cost timeline */}
           <Card>
             <CardHeader>
-              <CardTitle>Projeção de custos (5 anos)</CardTitle>
+              <CardTitle>Projeção de custos — anuidades INPI (5 anos)</CardTitle>
               <div className="flex gap-3 text-xs">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-400" />Anuidades patentes</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-400" />Renovação marcas</span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                  Anuidades patentes + renovação marcas
+                </span>
               </div>
             </CardHeader>
             <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={mockCostTimeline}>
+              <AreaChart data={timeline}>
                 <defs>
                   <linearGradient id="pg" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                    <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
@@ -131,36 +182,44 @@ export default function PortfolioPage() {
             </ResponsiveContainer>
           </Card>
 
-          {/* Assets Table */}
+          {/* Assets table */}
           <Card>
             <CardHeader>
-              <CardTitle>Ativos ({mockPortfolioAssets.length})</CardTitle>
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Buscar ativo..."
-                    className="pl-8 pr-3 py-1.5 rounded-lg text-xs outline-none"
-                    style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}
-                  />
-                </div>
+              <CardTitle>Ativos ({filtered.length})</CardTitle>
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Buscar ativo..."
+                  className="pl-8 pr-3 py-1.5 rounded-lg text-xs outline-none"
+                  style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}
+                />
               </div>
             </CardHeader>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                    {["Tipo", "Número / Título", "Status", "Vencimento", "Próx. taxa", "Mensal", "Anual", "Total", ""].map(h => (
-                      <th key={h} className="text-left pb-2 pr-3 text-xs font-medium" style={{ color: "var(--text-muted)" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {mockPortfolioAssets
-                    .filter(a => !searchQuery || a.title.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map(asset => (
+
+            {assets.length === 0 ? (
+              <div className="text-center py-10 space-y-2">
+                <AlertCircle size={32} className="mx-auto text-slate-600" />
+                <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                  Nenhum ativo no portfolio ainda.
+                </p>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Cadastre patentes via POST /api/v1/patents ou adicione marcas para começar.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                      {["Tipo", "Número / Título", "Status", "Vencimento", "Próx. taxa", "Mensal", "Anual", "Total", ""].map(h => (
+                        <th key={h} className="text-left pb-2 pr-3 text-xs font-medium" style={{ color: "var(--text-muted)" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(asset => (
                       <tr key={asset.id} style={{ borderBottom: "1px solid var(--border)" }} className="hover:bg-white/5">
                         <td className="py-3 pr-3">
                           <div className="flex items-center gap-1.5">
@@ -171,9 +230,14 @@ export default function PortfolioPage() {
                         <td className="py-3 pr-3">
                           <p className="text-white font-medium text-xs max-w-[180px] truncate">{asset.title}</p>
                           <p className="font-mono text-xs text-indigo-400">{asset.number}</p>
+                          {asset.ipc_code && (
+                            <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>IPC: {asset.ipc_code}</p>
+                          )}
                         </td>
                         <td className="py-3 pr-3">{statusBadge(asset.status)}</td>
-                        <td className="py-3 pr-3 text-xs" style={{ color: "var(--text-muted)" }}>{formatDate(asset.expiry_date)}</td>
+                        <td className="py-3 pr-3 text-xs" style={{ color: "var(--text-muted)" }}>
+                          {formatDate(asset.expiry_date || null)}
+                        </td>
                         <td className="py-3 pr-3"><DeadlinePill date={asset.next_fee_date} /></td>
                         <td className="py-3 pr-3 text-xs text-white">{formatBRL(asset.cost_monthly)}</td>
                         <td className="py-3 pr-3 text-xs text-white">{formatBRL(asset.cost_annual)}</td>
@@ -187,9 +251,10 @@ export default function PortfolioPage() {
                         </td>
                       </tr>
                     ))}
-                </tbody>
-              </table>
-            </div>
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
 
           {/* AI Opportunities */}
@@ -197,12 +262,24 @@ export default function PortfolioPage() {
             <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
               <Lightbulb size={16} className="text-amber-400" />
               Oportunidades sugeridas pela IA
+              {isLive && aiOpps.length > 0 && (
+                <Badge variant="warning">{aiOpps.length} nova{aiOpps.length > 1 ? "s" : ""}</Badge>
+              )}
             </h2>
-            <div className="grid grid-cols-1 gap-3">
-              {mockAIOpportunities.map(opp => (
-                <OpportunityCard key={opp.id} opp={opp} />
-              ))}
-            </div>
+            {aiOpps.length === 0 ? (
+              <Card>
+                <p className="text-sm text-center py-4" style={{ color: "var(--text-muted)" }}>
+                  Nenhuma oportunidade de alta prioridade detectada ainda.
+                  Execute o harvest UFOP para popular.
+                </p>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                {aiOpps.map(opp => (
+                  <OpportunityCard key={opp.id} opp={opp} />
+                ))}
+              </div>
+            )}
           </div>
         </>
       ) : (
@@ -218,6 +295,8 @@ export default function PortfolioPage() {
   );
 }
 
+// ─── sub-components ───────────────────────────────────────────────────────────
+
 function OpportunityCard({ opp }: { opp: AIOpportunity }) {
   return (
     <Card style={{ borderColor: opp.type === "opportunity" ? "#6366f130" : "#ef444430" }}>
@@ -225,11 +304,11 @@ function OpportunityCard({ opp }: { opp: AIOpportunity }) {
         <div className={cn("p-2 rounded-lg mt-0.5 shrink-0",
           opp.type === "opportunity" ? "bg-amber-500/20" : "bg-red-500/20")}>
           {opp.type === "opportunity"
-            ? <TrendingUp size={15} className="text-amber-400" />
+            ? <TrendingUp  size={15} className="text-amber-400" />
             : <ShieldAlert size={15} className="text-red-400" />}
         </div>
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <p className="text-sm font-semibold text-white">{opp.title}</p>
             <Badge variant="muted">{opp.confidence}% confiança</Badge>
             {opp.ipc_class && <Badge variant="info">IPC: {opp.ipc_class}</Badge>}
@@ -237,7 +316,7 @@ function OpportunityCard({ opp }: { opp: AIOpportunity }) {
           <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>{opp.description}</p>
           {opp.estimated_cost && (
             <p className="text-xs mt-1 text-indigo-400">
-              Custo estimado do depósito: {formatBRL(opp.estimated_cost)}
+              Custo estimado de depósito: {formatBRL(opp.estimated_cost)}
             </p>
           )}
         </div>
@@ -247,75 +326,68 @@ function OpportunityCard({ opp }: { opp: AIOpportunity }) {
   );
 }
 
-function ThirdPartyEstimator({ query, setQuery, loading, onSearch, hasResult }: {
-  query: string;
-  setQuery: (v: string) => void;
-  loading: boolean;
-  onSearch: () => void;
-  hasResult: boolean;
+function ThirdPartyEstimator({
+  query, setQuery, loading, onSearch, hasResult,
+}: {
+  query: string; setQuery: (v: string) => void;
+  loading: boolean; onSearch: () => void; hasResult: boolean;
 }) {
-  const thirdPartyAssets = [
-    { area: "Exploração de petróleo", pct: 38, count: 322 },
-    { area: "Refino e processos", pct: 27, count: 229 },
-    { area: "Energias renováveis", pct: 18, count: 153, growing: true },
-    { area: "Meio ambiente", pct: 17, count: 143 },
+  const distribution = [
+    { area: "Exploração de petróleo",    pct: 38, count: 322 },
+    { area: "Refino e processos",        pct: 27, count: 229 },
+    { area: "Energias renováveis",       pct: 18, count: 153, growing: true },
+    { area: "Meio ambiente",             pct: 17, count: 143 },
   ];
 
   return (
     <div className="space-y-4">
       <Card>
         <div className="space-y-4">
-          <div>
-            <label className="text-xs font-medium mb-2 block" style={{ color: "var(--text-muted)" }}>
-              Titular / Empresa a estimar
-            </label>
-            <div className="flex gap-3">
-              <input
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                placeholder="ex: Petrobras S.A., UFOP, Embraer..."
-                className="flex-1 px-4 py-2.5 rounded-lg text-sm outline-none"
-                style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}
-              />
-              <Button onClick={onSearch} disabled={loading || !query.trim()}>
-                {loading
-                  ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Buscando...</>
-                  : <><Search size={14} />Estimar Portfolio</>}
-              </Button>
-            </div>
-            <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
-              Fontes: INPI · Lens.org · INPADOC
-            </p>
+          <label className="text-xs font-medium block" style={{ color: "var(--text-muted)" }}>
+            Titular / Empresa a estimar
+          </label>
+          <div className="flex gap-3">
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="ex: Petrobras S.A., UFOP, Embraer…"
+              className="flex-1 px-4 py-2.5 rounded-lg text-sm outline-none"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}
+            />
+            <Button onClick={onSearch} disabled={loading || !query.trim()}>
+              {loading
+                ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Buscando…</>
+                : <><Search size={14} />Estimar Portfolio</>}
+            </Button>
           </div>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Fontes: INPI · Lens.org · INPADOC
+          </p>
         </div>
       </Card>
 
       {hasResult && (
         <>
           <div className="grid grid-cols-3 gap-4">
-            <Card>
-              <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Custo Mensal Estimado</p>
-              <p className="text-2xl font-bold text-white">R$ 42.300</p>
-              <p className="text-xs mt-1 text-amber-400">847 ativos encontrados</p>
-            </Card>
-            <Card>
-              <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Custo Anual Estimado</p>
-              <p className="text-2xl font-bold text-white">R$ 507.600</p>
-              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>anuidades + taxas INPI</p>
-            </Card>
-            <Card>
-              <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Custo Total (período)</p>
-              <p className="text-2xl font-bold text-white">R$ 6,1M</p>
-              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>até vencimento estimado</p>
-            </Card>
+            {[
+              { label: "Custo Mensal Estimado",  value: "R$ 42.300",  sub: "847 ativos encontrados" },
+              { label: "Custo Anual Estimado",   value: "R$ 507.600", sub: "anuidades + taxas INPI" },
+              { label: "Custo Total (período)",  value: "R$ 6,1M",    sub: "até vencimento estimado" },
+            ].map(({ label, value, sub }) => (
+              <Card key={label}>
+                <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{label}</p>
+                <p className="text-2xl font-bold text-white">{value}</p>
+                <p className="text-xs mt-1 text-amber-400">{sub}</p>
+              </Card>
+            ))}
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>Distribuição por área tecnológica — {query}</CardTitle>
+              <CardTitle>Distribuição por área — {query}</CardTitle>
             </CardHeader>
             <div className="space-y-3">
-              {thirdPartyAssets.map(a => (
+              {distribution.map(a => (
                 <div key={a.area}>
                   <div className="flex justify-between text-xs mb-1.5">
                     <span className="flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>

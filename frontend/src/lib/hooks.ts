@@ -5,7 +5,7 @@
 
 import useSWR from "swr";
 import { api } from "./api";
-import type { Patent, PatentListResponse, UFOPListResponse } from "./types";
+import type { Patent, PatentListResponse, UFOPListResponse, PortfolioResponse } from "./types";
 
 const SWR_OPTIONS = {
   refreshInterval: 30_000,
@@ -41,6 +41,16 @@ export function useHealth() {
     "/health",
     () => api.health.check(),
     { refreshInterval: 10_000 }
+  );
+}
+
+// ─── Portfolio ────────────────────────────────────────────────────────────────
+
+export function usePortfolio() {
+  return useSWR<PortfolioResponse>(
+    "/api/v1/portfolio",
+    () => api.portfolio.get(),
+    SWR_OPTIONS
   );
 }
 
