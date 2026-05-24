@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { mockIpcDistribution, mockCostTimeline } from "@/lib/mock-data";
 import { useStats, usePortfolio } from "@/lib/hooks";
 import { formatDate, formatBRL, IPC_COLORS } from "@/lib/utils";
+import { Skeleton, SkeletonKPI } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -45,10 +47,11 @@ const statusColors: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const { data: stats,     mutate: refreshStats } = useStats();
-  const { data: portfolio }                      = usePortfolio();
+  const { data: stats, error: statsErr, isLoading: statsLoading, mutate: refreshStats } = useStats();
+  const { data: portfolio }                                                              = usePortfolio();
 
-  const isLive = !!stats;
+  const isLive  = !!stats;
+  const loading = statsLoading && !stats && !statsErr;
 
   // Use real stats when present, otherwise fall back to plausible mock numbers.
   const c = stats?.counts ?? {
@@ -113,10 +116,18 @@ export default function DashboardPage() {
 
       {/* KPI grid (4 cards) */}
       <div className="grid grid-cols-4 gap-4">
-        <KPI Icon={FileText}      label="Patentes"          value={c.patents.toLocaleString("pt-BR")}     sub={`${c.patents_classified} classificadas`}    color="#6366f1" />
-        <KPI Icon={Tag}           label="Marcas"            value={c.trademarks.toLocaleString("pt-BR")}  sub={`${c.trademarks_active} ativas`}            color="#8b5cf6" />
-        <KPI Icon={AlertTriangle} label="Disputas abertas"  value={c.disputes_open.toString()}            sub={`${c.disputes} totais`}                     color="#f59e0b" />
-        <KPI Icon={Cpu}           label="IA Acurácia"       value={`${aiAcc}%`}                            sub={isLive ? "BERT ativo" : "estimativa"}        color="#34d399" />
+        {loading ? (
+          <>
+            <SkeletonKPI /><SkeletonKPI /><SkeletonKPI /><SkeletonKPI />
+          </>
+        ) : (
+          <>
+            <KPI Icon={FileText}      label="Patentes"          value={c.patents.toLocaleString("pt-BR")}     sub={`${c.patents_classified} classificadas`}    color="#6366f1" />
+            <KPI Icon={Tag}           label="Marcas"            value={c.trademarks.toLocaleString("pt-BR")}  sub={`${c.trademarks_active} ativas`}            color="#8b5cf6" />
+            <KPI Icon={AlertTriangle} label="Disputas abertas"  value={c.disputes_open.toString()}            sub={`${c.disputes} totais`}                     color="#f59e0b" />
+            <KPI Icon={Cpu}           label="IA Acurácia"       value={`${aiAcc}%`}                            sub={isLive ? "BERT ativo" : "estimativa"}        color="#34d399" />
+          </>
+        )}
       </div>
 
       {/* Second row: UFOP highlight */}
@@ -245,7 +256,19 @@ export default function DashboardPage() {
           </span>
         </CardHeader>
 
-        {stats?.recent_activity?.length ? (
+        {loading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 py-2 px-3">
+                <Skeleton className="h-4 w-4 rounded-full" />
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 flex-1" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+            ))}
+          </div>
+        ) : stats?.recent_activity?.length ? (
           <div className="space-y-2">
             {stats.recent_activity.map(item => {
               const info = kindInfo[item.kind];
@@ -267,9 +290,11 @@ export default function DashboardPage() {
             })}
           </div>
         ) : (
-          <p className="text-sm text-center py-6" style={{ color: "var(--text-muted)" }}>
-            Nenhuma atividade recente. Cadastre uma patente ou marca para começar.
-          </p>
+          <EmptyState
+            title="Nenhuma atividade recente"
+            description="Cadastre uma patente, marca ou disputa para começar a ver o feed unificado."
+            size="sm"
+          />
         )}
       </Card>
     </div>

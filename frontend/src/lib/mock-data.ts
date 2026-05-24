@@ -1,7 +1,7 @@
 // Mock data — substituir por chamadas reais à API conforme backends são implementados
 
 import type {
-  Patent, PortfolioAsset, AIOpportunity, Dispute,
+  Patent, PortfolioAsset, AIOpportunity, LegacyDispute,
   UFOPOpportunity, UFOPNews, PoolPatent, TTContract, Alert,
 } from "./types";
 
@@ -166,7 +166,7 @@ export const mockAIOpportunities: AIOpportunity[] = [
   },
 ];
 
-export const mockDisputes: Dispute[] = [
+export const mockDisputes: LegacyDispute[] = [
   {
     id: "d-1",
     number: "ARB-2026-001",

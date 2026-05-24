@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonKPI, SkeletonTable } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import { mockAIOpportunities, mockCostTimeline, mockPortfolioAssets } from "@/lib/mock-data";
 import { formatBRL, formatDate, daysUntil, cn } from "@/lib/utils";
 import type { PortfolioAsset, AIOpportunity, CostPoint } from "@/lib/types";
@@ -61,9 +63,10 @@ export default function PortfolioPage() {
   const [loading, setLoading]         = useState(false);
   const [thirdPartyResult, setThirdPartyResult] = useState(false);
 
-  const { data, error, mutate } = usePortfolio();
+  const { data, error, isLoading, mutate } = usePortfolio();
 
-  const isLive = !error && !!data;
+  const isLive  = !error && !!data;
+  const portfolioLoading = isLoading && !data && !error;
 
   const assets: PortfolioAsset[]       = isLive ? data!.assets          : mockPortfolioAssets;
   const timeline: CostPoint[]          = isLive ? data!.cost_timeline    : mockCostTimeline;
@@ -134,25 +137,31 @@ export default function PortfolioPage() {
         <>
           {/* KPIs */}
           <div className="grid grid-cols-4 gap-4">
-            <Card>
-              <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Total de ativos</p>
-              <p className="text-2xl font-bold text-white">{assets.length}</p>
-              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                {assets.filter(a => a.type === "PI" || a.type === "MU").length} patentes ·{" "}
-                {assets.filter(a => a.type === "TM").length} marcas
-              </p>
-            </Card>
-            {[
-              { label: "Custo Mensal",          value: summary.monthly, sub: "estimado" },
-              { label: "Custo Anual",           value: summary.annual,  sub: "estimado" },
-              { label: "Custo Total (período)", value: summary.total,   sub: "até vencimento" },
-            ].map(({ label, value, sub }) => (
-              <Card key={label}>
-                <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{label}</p>
-                <p className="text-2xl font-bold text-white">{formatBRL(value)}</p>
-                <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{sub}</p>
-              </Card>
-            ))}
+            {portfolioLoading ? (
+              <><SkeletonKPI /><SkeletonKPI /><SkeletonKPI /><SkeletonKPI /></>
+            ) : (
+              <>
+                <Card>
+                  <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Total de ativos</p>
+                  <p className="text-2xl font-bold text-white">{assets.length}</p>
+                  <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                    {assets.filter(a => a.type === "PI" || a.type === "MU").length} patentes ·{" "}
+                    {assets.filter(a => a.type === "TM").length} marcas
+                  </p>
+                </Card>
+                {[
+                  { label: "Custo Mensal",          value: summary.monthly, sub: "estimado" },
+                  { label: "Custo Anual",           value: summary.annual,  sub: "estimado" },
+                  { label: "Custo Total (período)", value: summary.total,   sub: "até vencimento" },
+                ].map(({ label, value, sub }) => (
+                  <Card key={label}>
+                    <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{label}</p>
+                    <p className="text-2xl font-bold text-white">{formatBRL(value)}</p>
+                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{sub}</p>
+                  </Card>
+                ))}
+              </>
+            )}
           </div>
 
           {/* Cost timeline */}
@@ -198,16 +207,14 @@ export default function PortfolioPage() {
               </div>
             </CardHeader>
 
-            {assets.length === 0 ? (
-              <div className="text-center py-10 space-y-2">
-                <AlertCircle size={32} className="mx-auto text-slate-600" />
-                <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                  Nenhum ativo no portfolio ainda.
-                </p>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  Cadastre patentes via POST /api/v1/patents ou adicione marcas para começar.
-                </p>
-              </div>
+            {portfolioLoading ? (
+              <SkeletonTable rows={5} cols={8} />
+            ) : assets.length === 0 ? (
+              <EmptyState
+                icon={AlertCircle}
+                title="Nenhum ativo no portfolio ainda"
+                description="Cadastre patentes via POST /api/v1/patents ou rode `make seed` para popular o banco com dados de demonstração."
+              />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

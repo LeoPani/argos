@@ -9,6 +9,8 @@ import { formatDate } from "@/lib/utils";
 import type { UFOPOpportunity, OpportunityLevel, UFOPStatus } from "@/lib/types";
 import { useUFOPOpportunities } from "@/lib/hooks";
 import { api } from "@/lib/api";
+import { SkeletonKPI, SkeletonList } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   GraduationCap, Flame, Minus, TrendingDown,
   ExternalLink, Search, RefreshCw, CheckCircle2,
@@ -125,11 +127,12 @@ export default function UFOPPage() {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [filter, setFilter] = useState<OpportunityLevel | "all">("all");
 
-  const { data, error, mutate } = useUFOPOpportunities(
+  const { data, error, isLoading, mutate } = useUFOPOpportunities(
     filter !== "all" ? { level: filter } : undefined
   );
 
-  const isLive = !error && !!data;
+  const isLive  = !error && !!data;
+  const loading = isLoading && !data && !error;
   const opportunities: UFOPOpportunity[] = isLive
     ? data!.items
     : MOCK_OPPORTUNITIES.filter(o => filter === "all" || o.opportunity_level === filter);
@@ -233,11 +236,20 @@ export default function UFOPPage() {
             </span>
           </h2>
 
-          {opportunities.length === 0 && (
+          {loading && <SkeletonList count={3} />}
+
+          {!loading && opportunities.length === 0 && (
             <Card>
-              <p className="text-sm text-center py-6" style={{ color: "var(--text-muted)" }}>
-                Nenhuma oportunidade encontrada.
-              </p>
+              <EmptyState
+                icon={GraduationCap}
+                title={filter === "all"
+                  ? "Nenhuma oportunidade ainda"
+                  : `Nenhuma oportunidade ${filter === "high" ? "alta" : filter === "medium" ? "média" : "baixa"}`}
+                description={filter === "all"
+                  ? "Rode o harvest UFOP (ScrapePortal + HarvestOAI) ou use `make seed` para popular."
+                  : "Tente outro nível ou volte para 'Todos'."}
+                size="sm"
+              />
             </Card>
           )}
 

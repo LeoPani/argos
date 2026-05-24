@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { useWatchlists } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import type { Watchlist, WatchType } from "@/lib/types";
+import { SkeletonList } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Bell, Plus, Eye, Building2, Tag, FileText, Search,
   Trash2, RefreshCw, Zap,
@@ -186,15 +188,16 @@ export default function AlertasPage() {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-white">Monitoramentos ativos</h2>
 
-        {isLoading && items.length === 0 && (
-          <Card><p className="text-sm text-center py-4" style={{ color: "var(--text-muted)" }}>Carregando…</p></Card>
-        )}
+        {isLoading && items.length === 0 && <SkeletonList count={3} />}
 
         {!isLoading && items.length === 0 && (
           <Card>
-            <p className="text-sm text-center py-4" style={{ color: "var(--text-muted)" }}>
-              Nenhum monitoramento ainda. Crie o primeiro acima.
-            </p>
+            <EmptyState
+              icon={Bell}
+              title="Nenhum monitoramento ainda"
+              description="Crie o primeiro alerta no formulário acima — Argos vai varrer patentes e marcas em busca de matches."
+              size="sm"
+            />
           </Card>
         )}
 

@@ -9,6 +9,7 @@ import type {
   Patent, PatentListResponse,
   UFOPListResponse, PortfolioResponse,
   StatsResponse, WatchlistListResponse,
+  DisputeListResponse,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -64,6 +65,20 @@ export function useStats() {
   return useSWR<StatsResponse>(
     "/api/v1/stats",
     () => api.stats.get(),
+    SWR_OPTIONS
+  );
+}
+
+// ─── Disputes / Arbitration ──────────────────────────────────────────────────
+
+export function useDisputes(params?: Record<string, string>) {
+  const key = params
+    ? ["/api/v1/disputes", JSON.stringify(params)]
+    : "/api/v1/disputes";
+
+  return useSWR<DisputeListResponse>(
+    key,
+    () => api.disputes.list(params),
     SWR_OPTIONS
   );
 }

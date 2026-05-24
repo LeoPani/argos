@@ -23,6 +23,7 @@ import type {
   PortfolioResponse,
   StatsResponse,
   WatchType, Watchlist, WatchlistListResponse,
+  Dispute, DisputeListResponse, DisputeKind, DisputeStatus,
 } from "./types";
 
 export const api = {
@@ -66,6 +67,24 @@ export const api = {
       req<Watchlist>(`/api/v1/watchlists/${id}/check`, { method: "POST" }),
     checkAll: () =>
       req<{ checked: number }>("/api/v1/watchlists/check-all", { method: "POST" }),
+  },
+
+  disputes: {
+    list: (params?: Record<string, string>) => {
+      const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+      return req<DisputeListResponse>(`/api/v1/disputes${qs}`);
+    },
+    get: (id: number) => req<Dispute>(`/api/v1/disputes/${id}`),
+    open: (body: { case_number: string; title: string; summary: string; kind: DisputeKind }) =>
+      req<Dispute>("/api/v1/disputes", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    updateStatus: (id: number, status: DisputeStatus) =>
+      req<{ ok: boolean }>(`/api/v1/disputes/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      }),
   },
 
   ufop: {

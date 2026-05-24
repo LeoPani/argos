@@ -92,15 +92,47 @@ export interface PortfolioResponse {
 
 // ─── Arbitration ─────────────────────────────────────────────────────────────
 
-export type DisputeStatus = "open" | "in_analysis" | "mediation" | "resolved" | "urgent";
+/** Backend statuses — mirror domain.DisputeStatus from Go. */
+export type DisputeStatus =
+  | "open" | "in_review" | "awaiting_info"
+  | "resolved" | "withdrawn" | "escalated";
 
+export type DisputeKind =
+  | "trademark_infringement"
+  | "patent_infringement"
+  | "authorship"
+  | "licensing"
+  | "other";
+
+/** Mirrors domain.Dispute from the Go backend. */
 export interface Dispute {
+  id: number;
+  case_number: string;
+  title: string;
+  summary: string;
+  kind: DisputeKind;
+  status: DisputeStatus;
+  patent_id?: number | null;
+  trademark_id?: number | null;
+  opened_at: string;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DisputeListResponse {
+  items: Dispute[];
+  pagination: { total: number; limit: number; offset: number };
+}
+
+/** Legacy frontend-only shape (still used by mock data). */
+export interface LegacyDispute {
   id: string;
   number: string;
   title: string;
   plaintiff: string;
   defendant: string;
-  status: DisputeStatus;
+  status: "open" | "in_analysis" | "mediation" | "resolved" | "urgent";
   opened_at: string;
   deadline_days: number;
   blockchain_hash?: string;
