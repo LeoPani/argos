@@ -113,6 +113,22 @@ func (h *MetricsHandler) KnowledgeStock(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// RoyaltyForecast — GET /api/v1/metrics/royalty-forecast?years=10
+func (h *MetricsHandler) RoyaltyForecast(w http.ResponseWriter, r *http.Request) {
+	years := 10
+	if y := r.URL.Query().Get("years"); y != "" {
+		if v, err := strconv.Atoi(y); err == nil && v > 0 && v <= 20 {
+			years = v
+		}
+	}
+	resp, err := h.svc.RoyaltyForecast(r.Context(), years)
+	if err != nil {
+		httputil.Error(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, resp)
+}
+
 // Methodology — GET /api/v1/metrics/methodology
 // Static metadata: formulas + references for each metric. Renderable by frontend.
 func (h *MetricsHandler) Methodology(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +203,17 @@ func methodologyPayload() map[string]any {
 				"references": []string{
 					"Schankerman, M., & Pakes, A. (1986). Estimates of the value of patent rights in European countries during the post-1950 period. The Economic Journal, 96(384), 1052-1076.",
 					"Pakes, A. (1986). Patents as options: some estimates of the value of holding European patent stocks. Econometrica, 54(4), 755-784.",
+				},
+			},
+			{
+				"id":          "royalty_forecast",
+				"name":        "Royalty Forecast (Pakes 1986 — patent as option)",
+				"description": "Projeção 10 anos de receita UFOP por contratos TT + crescimento + decay",
+				"formula":     "revenue(yr) = Σ contracts(floor + rate × sales × (1+g)^yr) + NIT_decay × upfront_avg",
+				"normalization": "NPV descontado a 8% a.a. (CDI 2024 referência)",
+				"references": []string{
+					"Pakes, A. (1986). Patents as options: some estimates of the value of holding European patent stocks. Econometrica, 54(4), 755-784.",
+					"Bessen, J. (2008). The value of U.S. patents by owner and patent characteristics. Research Policy, 37(5), 932-945.",
 				},
 			},
 			{

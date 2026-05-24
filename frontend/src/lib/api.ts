@@ -33,6 +33,7 @@ import type {
   MetricsResponse, MethodologyPayload, PCIScore,
   MaintenanceRecommendation, InventorProfile,
   DepartmentHealth, KnowledgeStockResponse,
+  RoyaltyForecast, FilingSuggestion,
 } from "./types";
 
 export const api = {
@@ -75,6 +76,8 @@ export const api = {
       req<{ departments: DepartmentHealth[] }>("/api/v1/metrics/departments"),
     knowledgeStock: (scope = "UFOP") =>
       req<KnowledgeStockResponse>(`/api/v1/metrics/knowledge-stock?scope=${encodeURIComponent(scope)}`),
+    royaltyForecast: (years = 10) =>
+      req<RoyaltyForecast>(`/api/v1/metrics/royalty-forecast?years=${years}`),
     enrichAll: (limit = 50) =>
       req<{ processed: number; errors: number; source: string; avg_fwd_citations: number }>(
         `/api/v1/metrics/enrich-all?limit=${limit}`,
@@ -85,6 +88,14 @@ export const api = {
         `/api/v1/metrics/enrich/${patentID}`,
         { method: "POST" },
       ),
+  },
+
+  smartFiling: {
+    analyze: (body: { title: string; abstract: string; field?: string }) =>
+      req<FilingSuggestion>("/api/v1/smart-filing", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
 
   portfolio: {

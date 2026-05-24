@@ -483,6 +483,55 @@ export interface KnowledgeStockResponse {
   depreciation_rate: number;
 }
 
+// ─── Royalty Forecast (Pakes 1986) ───────────────────────────────────────────
+
+export interface ForecastYear {
+  year: number;
+  expected_royalty_brl: number;
+  cumulative_brl: number;
+  active_contracts: number;
+  expiring_this_year: number;
+  new_contracts_expected: number;
+  expected_npv_brl: number;
+}
+
+export interface RoyaltyForecast {
+  years: ForecastYear[];
+  total_projected_brl: number;
+  total_npv_brl: number;
+  discount_rate: number;
+  growth_assumption: string;
+  methodology: string;
+}
+
+// ─── Smart Filing Assistant ──────────────────────────────────────────────────
+
+export interface FilingPriorArtHit {
+  patent_id: number;
+  application_number: string;
+  title: string;
+  applicant: string;
+  ipc_category: number;
+  similarity_pct: number;
+  status: string;
+}
+
+export interface FilingSuggestion {
+  ipc_category: number;
+  ipc_letter: string;
+  ipc_name: string;
+  ipc_confidence: "high" | "low";
+  distinctiveness: number;
+  specificity: number;
+  novelty_score: number;
+  overall_score: number;
+  recommendation: "proceed" | "refine" | "not_recommended";
+  prior_art_hits: FilingPriorArtHit[];
+  suggested_claim: string;
+  next_steps: string[];
+  methodology: string;
+}
+
 export interface PCIScore {
   patent_id: number;
   forward_citations: number;

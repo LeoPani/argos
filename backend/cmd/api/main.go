@@ -127,6 +127,8 @@ func run() error {
 	lensPatentClient := lens.NewPatentClient()
 	enrichmentSvc := service.NewEnrichmentService(db, patentRepo, lensPatentClient)
 
+	smartFilingSvc := service.NewSmartFilingService(aiSvc, patentRepo)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -145,8 +147,9 @@ func run() error {
 		PoolService:       poolSvc,
 		ChatService:       chatSvc,
 		SearchService:     searchSvc,
-		MetricsService:    metricsSvc,
-		EnrichmentService: enrichmentSvc,
+		MetricsService:     metricsSvc,
+		EnrichmentService:  enrichmentSvc,
+		SmartFilingService: smartFilingSvc,
 	})
 
 	// --- HTTP server ---

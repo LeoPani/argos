@@ -23,8 +23,9 @@ type Deps struct {
 	PoolService       *service.PoolService
 	ChatService       *service.ChatService
 	SearchService     *service.SearchService
-	MetricsService    *service.MetricsService
-	EnrichmentService *service.EnrichmentService
+	MetricsService     *service.MetricsService
+	EnrichmentService  *service.EnrichmentService
+	SmartFilingService *service.SmartFilingService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -132,7 +133,14 @@ func NewRouter(deps Deps) http.Handler {
 		mux.HandleFunc("GET /api/v1/metrics/inventors/{name}",        m.InventorProfile)
 		mux.HandleFunc("GET /api/v1/metrics/departments",             m.HealthByDepartment)
 		mux.HandleFunc("GET /api/v1/metrics/knowledge-stock",         m.KnowledgeStock)
+		mux.HandleFunc("GET /api/v1/metrics/royalty-forecast",        m.RoyaltyForecast)
 		mux.HandleFunc("GET /api/v1/metrics/methodology",             m.Methodology)
+	}
+
+	// ── Smart Filing Assistant ────────────────────────────────────────────
+	if deps.SmartFilingService != nil {
+		sf := NewSmartFilingHandler(deps.SmartFilingService)
+		mux.HandleFunc("POST /api/v1/smart-filing", sf.Analyze)
 	}
 
 	// ── Lens.org enrichment ───────────────────────────────────────────────

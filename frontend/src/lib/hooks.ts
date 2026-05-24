@@ -17,6 +17,7 @@ import type {
   MetricsResponse, MethodologyPayload,
   MaintenanceRecommendation, InventorProfile,
   DepartmentHealth, KnowledgeStockResponse,
+  RoyaltyForecast,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -210,6 +211,14 @@ export function useKnowledgeStock(scope = "UFOP") {
   return useSWR<KnowledgeStockResponse>(
     `/api/v1/metrics/knowledge-stock?scope=${scope}`,
     () => api.metrics.knowledgeStock(scope),
+    SWR_OPTIONS
+  );
+}
+
+export function useRoyaltyForecast(years = 10) {
+  return useSWR<RoyaltyForecast>(
+    `/api/v1/metrics/royalty-forecast?years=${years}`,
+    () => api.metrics.royaltyForecast(years),
     SWR_OPTIONS
   );
 }

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { SkeletonKPI } from "@/components/ui/skeleton";
 import { MetricTooltip } from "@/components/ui/metric-tooltip";
 import { useToast } from "@/components/ui/toast";
-import { useMetrics, useDepartments, useKnowledgeStock } from "@/lib/hooks";
+import { useMetrics, useDepartments, useKnowledgeStock, useRoyaltyForecast } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { formatBRL } from "@/lib/utils";
 import {
@@ -21,7 +21,7 @@ import {
 import {
   GraduationCap, TrendingUp, Network, Award,
   RefreshCw, BookOpen, Database, ArrowRight, AlertCircle,
-  Building, Layers,
+  Building, Layers, Coins, Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -29,6 +29,7 @@ export default function MetricsPage() {
   const { data, isLoading, mutate } = useMetrics("UFOP");
   const { data: depts } = useDepartments();
   const { data: stock } = useKnowledgeStock("UFOP");
+  const { data: forecast } = useRoyaltyForecast(10);
   const [enriching, setEnriching] = useState(false);
   const toast = useToast();
 
@@ -95,6 +96,11 @@ export default function MetricsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/smart-filing">
+            <Button variant="secondary" size="sm">
+              <Sparkles size={13} /> Smart Filing
+            </Button>
+          </Link>
           <Link href="/metodologia">
             <Button variant="ghost" size="sm">
               <BookOpen size={13} /> Metodologia
@@ -321,6 +327,57 @@ export default function MetricsPage() {
               </div>
             ))}
           </div>
+        </Card>
+      )}
+
+      {/* Royalty Forecast (Pakes 1986) */}
+      {forecast && forecast.years.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Coins size={14} className="text-amber-400" />
+              Royalty Forecast — 10 anos
+              <MetricTooltip metricID="royalty_forecast" />
+            </CardTitle>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              NPV @ {(forecast.discount_rate * 100).toFixed(0)}%: <span className="text-amber-300 font-semibold">{formatBRL(forecast.total_npv_brl)}</span>
+              {" · "}
+              Total: {formatBRL(forecast.total_projected_brl)}
+            </span>
+          </CardHeader>
+
+          <ResponsiveContainer width="100%" height={180}>
+            <AreaChart data={forecast.years}>
+              <defs>
+                <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="npv" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
+              <Tooltip
+                formatter={(v, name) => [
+                  `R$ ${Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}`,
+                  name === "expected_royalty_brl" ? "Receita anual" :
+                  name === "expected_npv_brl"     ? "NPV anual"     : String(name),
+                ]}
+              />
+              <Area type="monotone" dataKey="expected_royalty_brl" stroke="#fbbf24" fill="url(#rev)" strokeWidth={2} />
+              <Area type="monotone" dataKey="expected_npv_brl"     stroke="#34d399" fill="url(#npv)" strokeWidth={1.5} strokeDasharray="3 3" />
+            </AreaChart>
+          </ResponsiveContainer>
+
+          <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+            <span className="text-amber-400">━ receita</span>
+            {" "}<span className="text-emerald-400">--- NPV descontado</span>
+            {" · "}
+            Premissa: {forecast.growth_assumption}
+          </p>
         </Card>
       )}
 
