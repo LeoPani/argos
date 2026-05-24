@@ -6,13 +6,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SkeletonKPI, SkeletonList } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useDisputes } from "@/lib/hooks";
+import { useDisputes, useDisputeSubjects, useDisputeVerdict, usePatents } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
-import type { Dispute, DisputeStatus, DisputeKind } from "@/lib/types";
+import type { Dispute, DisputeStatus, DisputeKind, SubjectKind, DisputeSubject } from "@/lib/types";
 import {
   Scale, Plus, FileText, Clock, AlertTriangle,
   RefreshCw, CheckCircle2, X, ArrowRight,
+  Sparkles, Trophy, Trash2, Tag as TagIcon,
 } from "lucide-react";
 
 // ─── status / kind labels ─────────────────────────────────────────────────────
@@ -292,20 +293,243 @@ function DisputeDetail({ dispute, onChanged }: { dispute: Dispute; onChanged: ()
         )}
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Provas &amp; documentos</CardTitle>
-          <Button variant="secondary" size="sm" disabled>
-            <Plus size={12} />
-            Adicionar prova
-          </Button>
-        </CardHeader>
-        <p className="text-xs py-2" style={{ color: "var(--text-muted)" }}>
-          <FileText size={11} className="inline mr-1" />
-          Carimbo blockchain disponível na Phase 4 — por enquanto, anexe via API direta.
-        </p>
-      </Card>
+      <SubjectsPanel disputeID={dispute.id} kind={dispute.kind} />
+      <VerdictPanel disputeID={dispute.id} />
     </div>
+  );
+}
+
+// ─── Subjects panel — N marcas/patentes em comparação ─────────────────────────
+
+function SubjectsPanel({ disputeID, kind }: { disputeID: number; kind: DisputeKind }) {
+  const { data: subjData, mutate } = useDisputeSubjects(disputeID);
+  const subjects = subjData?.items ?? [];
+
+  const subjectKind: SubjectKind =
+    kind === "trademark_infringement" ? "trademark" :
+    kind === "patent_infringement"    ? "patent"    :
+    kind === "authorship"             ? "inventor"  : "other";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <TagIcon size={14} className="text-indigo-400" />
+          Partes em comparação ({subjects.length})
+        </CardTitle>
+      </CardHeader>
+
+      {subjects.length === 0 && (
+        <p className="text-xs py-2" style={{ color: "var(--text-muted)" }}>
+          Adicione pelo menos 2 itens para a IA comparar.
+        </p>
+      )}
+
+      <div className="space-y-2 mb-3">
+        {subjects.map(s => <SubjectRow key={s.id} subject={s} onRemoved={() => mutate()} />)}
+      </div>
+
+      <AddSubjectForm disputeID={disputeID} defaultKind={subjectKind} onAdded={() => mutate()} />
+    </Card>
+  );
+}
+
+function SubjectRow({ subject, onRemoved }: { subject: DisputeSubject; onRemoved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  async function remove() {
+    setBusy(true);
+    try { await api.disputes.removeSubject(subject.id); onRemoved(); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="flex items-center justify-between p-2.5 rounded-lg"
+      style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+      <div className="flex items-center gap-2">
+        <Badge variant="muted">{subject.kind}</Badge>
+        <span className="text-sm text-white">{subject.label}</span>
+        {subject.ref_id && (
+          <span className="font-mono text-xs text-indigo-400">#{subject.ref_id}</span>
+        )}
+      </div>
+      <Button variant="ghost" size="sm" onClick={remove} disabled={busy} style={{ color: "#f87171" }}>
+        <Trash2 size={11} />
+      </Button>
+    </div>
+  );
+}
+
+function AddSubjectForm({ disputeID, defaultKind, onAdded }: {
+  disputeID: number; defaultKind: SubjectKind; onAdded: () => void;
+}) {
+  const [kind, setKind]   = useState<SubjectKind>(defaultKind);
+  const [refID, setRefID] = useState("");
+  const [label, setLabel] = useState("");
+  const [busy, setBusy]   = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!label.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      await api.disputes.addSubject(disputeID, {
+        kind,
+        ref_id: refID ? Number(refID) : undefined,
+        label: label.trim(),
+      });
+      setRefID(""); setLabel("");
+      onAdded();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erro");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex gap-2 items-end"
+      style={{ paddingTop: "12px", borderTop: "1px solid var(--border)" }}>
+      <div className="w-32">
+        <label className="text-xs" style={{ color: "var(--text-muted)" }}>Tipo</label>
+        <select value={kind} onChange={e => setKind(e.target.value as SubjectKind)}
+          className="w-full px-2 py-1.5 rounded text-xs outline-none"
+          style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}>
+          <option value="trademark">Marca</option>
+          <option value="patent">Patente</option>
+          <option value="inventor">Inventor</option>
+          <option value="other">Outro</option>
+        </select>
+      </div>
+      <div className="w-24">
+        <label className="text-xs" style={{ color: "var(--text-muted)" }}>ID (opc.)</label>
+        <input value={refID} onChange={e => setRefID(e.target.value)} placeholder="#id"
+          className="w-full px-2 py-1.5 rounded text-xs outline-none font-mono"
+          style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }} />
+      </div>
+      <div className="flex-1">
+        <label className="text-xs" style={{ color: "var(--text-muted)" }}>Nome/Label</label>
+        <input value={label} onChange={e => setLabel(e.target.value)}
+          placeholder="ex: ARGOS INTELLIGENCE"
+          className="w-full px-2 py-1.5 rounded text-xs outline-none"
+          style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }} />
+      </div>
+      <Button type="submit" size="sm" disabled={busy || !label.trim()}>
+        <Plus size={11} /> Adicionar
+      </Button>
+      {error && <span className="text-xs" style={{ color: "#f87171" }}>{error}</span>}
+    </form>
+  );
+}
+
+// ─── Verdict panel — IA generates report ──────────────────────────────────────
+
+function VerdictPanel({ disputeID }: { disputeID: number }) {
+  const { data, mutate } = useDisputeVerdict(disputeID);
+  const verdict = data?.verdict ?? null;
+  const [busy, setBusy]   = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function analyze() {
+    setBusy(true); setError(null);
+    try { await api.disputes.analyze(disputeID); mutate(); }
+    catch (e: unknown) { setError(e instanceof Error ? e.message : "Erro"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Card style={{ borderColor: verdict ? "#a855f730" : "var(--border)" }}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles size={14} className="text-purple-400" />
+          Análise da IA
+          {verdict && <Badge variant="muted">{verdict.method}</Badge>}
+        </CardTitle>
+        <Button size="sm" onClick={analyze} disabled={busy}>
+          {busy
+            ? <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Analisando…</>
+            : <><Sparkles size={11} /> {verdict ? "Re-analisar" : "Analisar agora"}</>}
+        </Button>
+      </CardHeader>
+
+      {error && <p className="text-xs mb-2" style={{ color: "#f87171" }}>{error}</p>}
+
+      {!verdict ? (
+        <p className="text-xs py-2" style={{ color: "var(--text-muted)" }}>
+          Clique em "Analisar" para gerar veredito baseado nas marcas/patentes adicionadas.
+          O modelo compara prioridade temporal, distintividade, classes Nice e status no INPI.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {/* Summary */}
+          <div className="rounded-lg p-3"
+            style={{ background: "#a855f720", border: "1px solid #a855f740" }}>
+            <div className="flex items-start gap-2">
+              <Trophy size={14} className="text-amber-400 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm text-white">{verdict.summary}</p>
+                <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  Confiança: <span className="text-white font-semibold">{verdict.confidence}%</span>
+                  {" · "}
+                  Gerado: {formatDate(verdict.created_at)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Factors considered */}
+          <div>
+            <p className="text-xs font-semibold text-white mb-1">Fatores considerados</p>
+            <ul className="space-y-0.5">
+              {verdict.reasoning.factors.map((f, i) => (
+                <li key={i} className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  · {f}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Per-subject scores */}
+          <div>
+            <p className="text-xs font-semibold text-white mb-2">Análise por candidato</p>
+            <div className="space-y-2">
+              {verdict.reasoning.subjects.map(s => {
+                const isWinner = verdict.winner_subject_id === s.subject_id;
+                return (
+                  <div key={s.subject_id} className="rounded-lg p-2.5"
+                    style={{
+                      background: "var(--surface-2)",
+                      border: `1px solid ${isWinner ? "#fbbf24" : "var(--border)"}`,
+                    }}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        {isWinner && <Trophy size={11} className="text-amber-400" />}
+                        <span className="text-sm font-semibold text-white">{s.label}</span>
+                      </div>
+                      <span className="text-sm font-mono font-bold"
+                        style={{ color: s.score >= 70 ? "#34d399" : s.score >= 50 ? "#fbbf24" : "#f87171" }}>
+                        {s.score.toFixed(1)}/100
+                      </span>
+                    </div>
+                    {s.pro.length > 0 && (
+                      <div className="space-y-0.5 mb-1">
+                        {s.pro.map((p, i) => (
+                          <p key={i} className="text-xs text-emerald-400">+ {p}</p>
+                        ))}
+                      </div>
+                    )}
+                    {s.con.length > 0 && (
+                      <div className="space-y-0.5">
+                        {s.con.map((c, i) => (
+                          <p key={i} className="text-xs text-red-400">− {c}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 

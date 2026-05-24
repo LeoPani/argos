@@ -9,15 +9,18 @@ import (
 
 // Deps bundles all services the router needs.
 type Deps struct {
-	DB               *sql.DB
-	PatentService    *service.PatentService
-	TrademarkService *service.TrademarkService
-	DisputeService   *service.DisputeService
-	PriorArtService  *service.PriorArtService
-	UFOPService      *service.UFOPService
-	PortfolioService *service.PortfolioService
-	StatsService     *service.StatsService
-	WatchlistService *service.WatchlistService
+	DB                *sql.DB
+	PatentService     *service.PatentService
+	TrademarkService  *service.TrademarkService
+	DisputeService    *service.DisputeService
+	PriorArtService   *service.PriorArtService
+	UFOPService       *service.UFOPService
+	PortfolioService  *service.PortfolioService
+	StatsService      *service.StatsService
+	WatchlistService  *service.WatchlistService
+	ArbitrationAI     *service.ArbitrationAI
+	TTContractService *service.TTContractService
+	PoolService       *service.PoolService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -82,6 +85,37 @@ func NewRouter(deps Deps) http.Handler {
 	if deps.StatsService != nil {
 		stats := NewStatsHandler(deps.StatsService)
 		mux.HandleFunc("GET /api/v1/stats", stats.Get)
+	}
+
+	// ── Arbitration AI (subjects + verdict) ───────────────────────────────
+	if deps.ArbitrationAI != nil {
+		arb := NewArbitrationHandler(deps.ArbitrationAI)
+		mux.HandleFunc("GET /api/v1/disputes/{id}/subjects",       arb.ListSubjects)
+		mux.HandleFunc("POST /api/v1/disputes/{id}/subjects",      arb.AddSubject)
+		mux.HandleFunc("DELETE /api/v1/disputes/subjects/{subjectId}", arb.DeleteSubject)
+		mux.HandleFunc("POST /api/v1/disputes/{id}/analyze",       arb.Analyze)
+		mux.HandleFunc("GET /api/v1/disputes/{id}/verdict",        arb.LatestVerdict)
+	}
+
+	// ── TT Contracts ──────────────────────────────────────────────────────
+	if deps.TTContractService != nil {
+		tt := NewTTContractHandler(deps.TTContractService)
+		mux.HandleFunc("GET /api/v1/tt-contracts",                 tt.List)
+		mux.HandleFunc("POST /api/v1/tt-contracts",                tt.Create)
+		mux.HandleFunc("GET /api/v1/tt-contracts/{id}",            tt.GetByID)
+		mux.HandleFunc("PATCH /api/v1/tt-contracts/{id}/status",   tt.UpdateStatus)
+		mux.HandleFunc("DELETE /api/v1/tt-contracts/{id}",         tt.Delete)
+	}
+
+	// ── Patent Pools ──────────────────────────────────────────────────────
+	if deps.PoolService != nil {
+		pool := NewPoolHandler(deps.PoolService)
+		mux.HandleFunc("GET /api/v1/pools",                        pool.List)
+		mux.HandleFunc("POST /api/v1/pools",                       pool.Create)
+		mux.HandleFunc("GET /api/v1/pools/{id}",                   pool.GetByID)
+		mux.HandleFunc("DELETE /api/v1/pools/{id}",                pool.Delete)
+		mux.HandleFunc("POST /api/v1/pools/{id}/members",          pool.AddMember)
+		mux.HandleFunc("DELETE /api/v1/pools/{id}/members/{patentId}", pool.RemoveMember)
 	}
 
 	// ── Watchlists / Alerts ───────────────────────────────────────────────

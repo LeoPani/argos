@@ -107,6 +107,15 @@ func run() error {
 	watchlistRepo := pg.NewWatchlistRepo(db)
 	watchlistSvc := service.NewWatchlistService(watchlistRepo, patentRepo, trademarkRepo)
 
+	arbitrationRepo := pg.NewArbitrationRepo(db)
+	arbitrationAI := service.NewArbitrationAI(arbitrationRepo, patentRepo, trademarkRepo, disputeRepo)
+
+	ttContractRepo := pg.NewTTContractRepo(db)
+	ttContractSvc := service.NewTTContractService(ttContractRepo)
+
+	poolRepo := pg.NewPoolRepo(db)
+	poolSvc := service.NewPoolService(poolRepo)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -116,10 +125,13 @@ func run() error {
 		TrademarkService: trademarkSvc,
 		DisputeService:   disputeSvc,
 		PriorArtService:  priorArtSvc,
-		UFOPService:      ufopSvc,
-		PortfolioService: portfolioSvc,
-		StatsService:     statsSvc,
-		WatchlistService: watchlistSvc,
+		UFOPService:       ufopSvc,
+		PortfolioService:  portfolioSvc,
+		StatsService:      statsSvc,
+		WatchlistService:  watchlistSvc,
+		ArbitrationAI:     arbitrationAI,
+		TTContractService: ttContractSvc,
+		PoolService:       poolSvc,
 	})
 
 	// --- HTTP server ---

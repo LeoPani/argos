@@ -2,7 +2,7 @@
 
 import type {
   Patent, PortfolioAsset, AIOpportunity, LegacyDispute,
-  UFOPOpportunity, UFOPNews, PoolPatent, TTContract, Alert,
+  UFOPOpportunity, UFOPNews, PoolPatent, LegacyTTContract, Alert,
 } from "./types";
 
 export const mockPatents: Patent[] = [
@@ -306,7 +306,7 @@ export const mockPoolPatents: PoolPatent[] = [
   },
 ];
 
-export const mockContracts: TTContract[] = [
+export const mockContracts: LegacyTTContract[] = [
   {
     id: "ct-1",
     number: "TT-2024-001",

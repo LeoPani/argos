@@ -24,6 +24,9 @@ import type {
   StatsResponse,
   WatchType, Watchlist, WatchlistListResponse,
   Dispute, DisputeListResponse, DisputeKind, DisputeStatus,
+  DisputeSubject, SubjectKind, ArbitrationVerdict,
+  TTContract, TTContractListResponse, LicenseKind, ContractStatus,
+  PatentPool, PoolListResponse, PoolKind, PoolMember,
 } from "./types";
 
 export const api = {
@@ -85,6 +88,64 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify({ status }),
       }),
+
+    // ─ Subjects + AI verdict ─
+    listSubjects: (disputeID: number) =>
+      req<{ items: DisputeSubject[]; count: number }>(`/api/v1/disputes/${disputeID}/subjects`),
+    addSubject: (disputeID: number, body: { kind: SubjectKind; ref_id?: number; label: string }) =>
+      req<DisputeSubject>(`/api/v1/disputes/${disputeID}/subjects`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    removeSubject: (subjectID: number) =>
+      fetch(`${BASE}/api/v1/disputes/subjects/${subjectID}`, { method: "DELETE" })
+        .then(r => { if (!r.ok) throw new Error(`API ${r.status}`); }),
+    analyze: (disputeID: number) =>
+      req<ArbitrationVerdict>(`/api/v1/disputes/${disputeID}/analyze`, { method: "POST" }),
+    verdict: (disputeID: number) =>
+      req<{ verdict: ArbitrationVerdict | null }>(`/api/v1/disputes/${disputeID}/verdict`),
+  },
+
+  ttContracts: {
+    list: (params?: Record<string, string>) => {
+      const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+      return req<TTContractListResponse>(`/api/v1/tt-contracts${qs}`);
+    },
+    get: (id: number) => req<TTContract>(`/api/v1/tt-contracts/${id}`),
+    create: (body: Partial<TTContract>) =>
+      req<TTContract>("/api/v1/tt-contracts", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    updateStatus: (id: number, status: ContractStatus) =>
+      req<{ ok: boolean }>(`/api/v1/tt-contracts/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      }),
+    delete: (id: number) =>
+      fetch(`${BASE}/api/v1/tt-contracts/${id}`, { method: "DELETE" })
+        .then(r => { if (!r.ok) throw new Error(`API ${r.status}`); }),
+  },
+
+  pools: {
+    list: () => req<PoolListResponse>("/api/v1/pools"),
+    get:  (id: number) => req<PatentPool>(`/api/v1/pools/${id}`),
+    create: (body: { name: string; description?: string; pool_kind?: PoolKind; royalty_rate?: number; duration_years?: number }) =>
+      req<PatentPool>("/api/v1/pools", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: number) =>
+      fetch(`${BASE}/api/v1/pools/${id}`, { method: "DELETE" })
+        .then(r => { if (!r.ok) throw new Error(`API ${r.status}`); }),
+    addMember: (poolID: number, body: { patent_id: number; share_pct: number }) =>
+      req<PoolMember>(`/api/v1/pools/${poolID}/members`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    removeMember: (poolID: number, patentID: number) =>
+      fetch(`${BASE}/api/v1/pools/${poolID}/members/${patentID}`, { method: "DELETE" })
+        .then(r => { if (!r.ok) throw new Error(`API ${r.status}`); }),
   },
 
   ufop: {

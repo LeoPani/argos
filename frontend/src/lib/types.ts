@@ -125,6 +125,126 @@ export interface DisputeListResponse {
   pagination: { total: number; limit: number; offset: number };
 }
 
+// ─── Arbitration subjects + verdicts ─────────────────────────────────────────
+
+export type SubjectKind = "trademark" | "patent" | "inventor" | "other";
+
+export interface DisputeSubject {
+  id: number;
+  dispute_id: number;
+  kind: SubjectKind;
+  ref_id?: number | null;
+  label: string;
+  party_id?: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface SubjectScore {
+  subject_id: number;
+  label: string;
+  score: number;
+  pro: string[];
+  con: string[];
+}
+
+export interface VerdictReasoning {
+  subjects: SubjectScore[];
+  factors: string[];
+}
+
+export type VerdictMethod = "heuristic_v1" | "claude_v1" | "hybrid";
+
+export interface ArbitrationVerdict {
+  id: number;
+  dispute_id: number;
+  winner_subject_id: number | null;
+  confidence: number;
+  method: VerdictMethod;
+  summary: string;
+  reasoning: VerdictReasoning;
+  created_at: string;
+}
+
+// ─── TT Contracts ────────────────────────────────────────────────────────────
+
+export type LicenseKind = "exclusive" | "non_exclusive" | "sole";
+export type ContractStatus = "draft" | "negotiating" | "active" | "expired" | "terminated";
+
+export interface Milestone {
+  label: string;
+  due_date?: string;
+  fee_brl?: number;
+  done: boolean;
+}
+
+export interface TTContract {
+  id: number;
+  contract_number: string;
+  patent_id?: number | null;
+  pool_id?: number | null;
+  licensor: string;
+  licensee: string;
+  licensee_cnpj: string;
+  license_kind: LicenseKind;
+  sublicensable: boolean;
+  territory: string;
+  field_of_use: string;
+  royalty_rate: number;
+  royalty_floor_annual: number;
+  upfront_fee: number;
+  inventor_share_pct: number;
+  milestones: Milestone[];
+  signed_at?: string | null;
+  expires_at?: string | null;
+  status: ContractStatus;
+  nit_approved: boolean;
+  audit_rights: boolean;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TTContractListResponse {
+  items: TTContract[];
+  pagination: { total: number; limit: number; offset: number };
+}
+
+// ─── Patent Pools ────────────────────────────────────────────────────────────
+
+export type PoolKind = "offensive" | "defensive" | "standard_essential";
+export type PoolStatus = "forming" | "active" | "closed";
+
+export interface PoolMember {
+  id: number;
+  pool_id: number;
+  patent_id: number;
+  share_pct: number;
+  added_at: string;
+  patent_number?: string;
+  patent_title?: string;
+}
+
+export interface PatentPool {
+  id: number;
+  name: string;
+  description: string;
+  pool_kind: PoolKind;
+  royalty_rate: number;
+  territory: string;
+  duration_years: number;
+  administrator: string;
+  status: PoolStatus;
+  created_at: string;
+  updated_at: string;
+  members?: PoolMember[];
+}
+
+export interface PoolListResponse {
+  items: PatentPool[];
+  count: number;
+}
+
 /** Legacy frontend-only shape (still used by mock data). */
 export interface LegacyDispute {
   id: string;
@@ -185,10 +305,9 @@ export interface UFOPNews {
   pi_keywords: string[];
 }
 
-// ─── Patent Pool & TT ────────────────────────────────────────────────────────
+// ─── Legacy Patent Pool & TT types (mock-only, replaced above) ───────────────
 
 export type LicenseType = "exclusive" | "non-exclusive" | "sub-licensable";
-export type ContractStatus = "active" | "negotiating" | "expired" | "draft";
 
 export interface PoolPatent {
   id: string;
@@ -202,25 +321,19 @@ export interface PoolPatent {
   prospectus_url?: string;
 }
 
-export interface TTContract {
+export interface LegacyTTContract {
   id: string;
   number: string;
   patent_title: string;
   licensor: string;
   licensee: string;
-  status: ContractStatus;
+  status: "active" | "negotiating" | "expired" | "draft";
   signed_at: string;
   expiry_at: string;
   royalty_rate: number;
-  milestones: Milestone[];
+  milestones: { label: string; due_date: string; done: boolean }[];
   royalties: RoyaltyEntry[];
   blockchain_hash?: string;
-}
-
-export interface Milestone {
-  label: string;
-  due_date: string;
-  done: boolean;
 }
 
 export interface RoyaltyEntry {

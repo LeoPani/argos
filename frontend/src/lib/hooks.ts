@@ -10,6 +10,9 @@ import type {
   UFOPListResponse, PortfolioResponse,
   StatsResponse, WatchlistListResponse,
   DisputeListResponse,
+  DisputeSubject, ArbitrationVerdict,
+  TTContractListResponse,
+  PoolListResponse, PatentPool,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -79,6 +82,54 @@ export function useDisputes(params?: Record<string, string>) {
   return useSWR<DisputeListResponse>(
     key,
     () => api.disputes.list(params),
+    SWR_OPTIONS
+  );
+}
+
+// ─── Dispute subjects + verdict ──────────────────────────────────────────────
+
+export function useDisputeSubjects(disputeID: number | null) {
+  return useSWR<{ items: DisputeSubject[]; count: number }>(
+    disputeID ? `/api/v1/disputes/${disputeID}/subjects` : null,
+    () => api.disputes.listSubjects(disputeID!),
+    SWR_OPTIONS
+  );
+}
+
+export function useDisputeVerdict(disputeID: number | null) {
+  return useSWR<{ verdict: ArbitrationVerdict | null }>(
+    disputeID ? `/api/v1/disputes/${disputeID}/verdict` : null,
+    () => api.disputes.verdict(disputeID!),
+    SWR_OPTIONS
+  );
+}
+
+// ─── TT Contracts + Pools ────────────────────────────────────────────────────
+
+export function useTTContracts(params?: Record<string, string>) {
+  const key = params
+    ? ["/api/v1/tt-contracts", JSON.stringify(params)]
+    : "/api/v1/tt-contracts";
+
+  return useSWR<TTContractListResponse>(
+    key,
+    () => api.ttContracts.list(params),
+    SWR_OPTIONS
+  );
+}
+
+export function usePools() {
+  return useSWR<PoolListResponse>(
+    "/api/v1/pools",
+    () => api.pools.list(),
+    SWR_OPTIONS
+  );
+}
+
+export function usePool(id: number | null) {
+  return useSWR<PatentPool>(
+    id ? `/api/v1/pools/${id}` : null,
+    () => api.pools.get(id!),
     SWR_OPTIONS
   );
 }
