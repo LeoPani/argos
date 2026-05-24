@@ -13,6 +13,7 @@ import type {
   DisputeSubject, ArbitrationVerdict,
   TTContractListResponse,
   PoolListResponse, PatentPool,
+  ChatThreadListResponse, ChatThread,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -131,6 +132,24 @@ export function usePool(id: number | null) {
     id ? `/api/v1/pools/${id}` : null,
     () => api.pools.get(id!),
     SWR_OPTIONS
+  );
+}
+
+// ─── Chat threads ────────────────────────────────────────────────────────────
+
+export function useChatThreads() {
+  return useSWR<ChatThreadListResponse>(
+    "/api/v1/chat/threads",
+    () => api.chat.listThreads(),
+    SWR_OPTIONS
+  );
+}
+
+export function useChatThread(id: number | null) {
+  return useSWR<ChatThread>(
+    id ? `/api/v1/chat/threads/${id}` : null,
+    () => api.chat.getThread(id!),
+    { revalidateOnFocus: false }
   );
 }
 

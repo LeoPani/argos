@@ -27,6 +27,7 @@ import type {
   DisputeSubject, SubjectKind, ArbitrationVerdict,
   TTContract, TTContractListResponse, LicenseKind, ContractStatus,
   PatentPool, PoolListResponse, PoolKind, PoolMember,
+  ChatThread, ChatThreadListResponse, ChatRole, ChatMessage,
 } from "./types";
 
 export const api = {
@@ -125,6 +126,29 @@ export const api = {
     delete: (id: number) =>
       fetch(`${BASE}/api/v1/tt-contracts/${id}`, { method: "DELETE" })
         .then(r => { if (!r.ok) throw new Error(`API ${r.status}`); }),
+  },
+
+  chat: {
+    listThreads: () => req<ChatThreadListResponse>("/api/v1/chat/threads"),
+    createThread: (firstMessage: string) =>
+      req<ChatThread>("/api/v1/chat/threads", {
+        method: "POST",
+        body: JSON.stringify({ first_message: firstMessage }),
+      }),
+    getThread: (id: number) => req<ChatThread>(`/api/v1/chat/threads/${id}`),
+    deleteThread: (id: number) =>
+      fetch(`${BASE}/api/v1/chat/threads/${id}`, { method: "DELETE" })
+        .then(r => { if (!r.ok) throw new Error(`API ${r.status}`); }),
+    appendMessage: (threadID: number, role: ChatRole, content: string) =>
+      req<ChatMessage>(`/api/v1/chat/threads/${threadID}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ role, content }),
+      }),
+    updateTitle: (id: number, title: string) =>
+      req<{ title: string }>(`/api/v1/chat/threads/${id}/title`, {
+        method: "PATCH",
+        body: JSON.stringify({ title }),
+      }),
   },
 
   pools: {

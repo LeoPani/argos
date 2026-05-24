@@ -5,6 +5,8 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+const ARGOS_API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+
 const SYSTEM_PROMPT = `Você é o Argos, um assistente especializado em Propriedade Intelectual (PI) brasileiro.
 
 Suas especialidades:
@@ -37,9 +39,15 @@ Tabela anuidades (demais empresas):
 - Anos 11-15: R$ 2.355/ano
 - Anos 16-20: R$ 3.140/ano`;
 
+interface ChatRequestMsg { role: string; content: string }
+interface ChatRequest {
+  messages: ChatRequestMsg[];
+  thread_id?: number | null;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json();
+    const { messages, thread_id }: ChatRequest = await req.json();
 
     if (!process.env.ANTHROPIC_API_KEY) {
       return NextResponse.json(
@@ -48,23 +56,62 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Keep last 20 messages for context window efficiency
-    const recentMessages = messages.slice(-20);
+    // Last user message — needed for both Claude and persistence.
+    const lastUser = [...messages].reverse().find(m => m.role === "user");
+    if (!lastUser) {
+      return NextResponse.json({ error: "Nenhuma mensagem do usuário" }, { status: 400 });
+    }
 
+    // ─ 1. Call Claude ─
+    const recentMessages = messages.slice(-20);
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
-      messages: recentMessages.map((m: { role: string; content: string }) => ({
+      messages: recentMessages.map(m => ({
         role: m.role as "user" | "assistant",
         content: m.content,
       })),
     });
-
-    const text =
+    const assistantText =
       response.content[0].type === "text" ? response.content[0].text : "";
 
-    return NextResponse.json({ content: text });
+    // ─ 2. Persist to backend (non-blocking — best-effort) ─
+    let threadID = thread_id ?? null;
+    try {
+      if (!threadID) {
+        const createResp = await fetch(`${ARGOS_API}/api/v1/chat/threads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ first_message: lastUser.content }),
+        });
+        if (createResp.ok) {
+          const created = await createResp.json();
+          threadID = created.id;
+        }
+      }
+
+      if (threadID) {
+        // Fire-and-forget the two append-message calls. Failures are
+        // logged but don't break the user experience.
+        await Promise.all([
+          fetch(`${ARGOS_API}/api/v1/chat/threads/${threadID}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role: "user", content: lastUser.content }),
+          }),
+          fetch(`${ARGOS_API}/api/v1/chat/threads/${threadID}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role: "assistant", content: assistantText }),
+          }),
+        ]);
+      }
+    } catch (persistErr) {
+      console.warn("chat persistence failed (non-fatal):", persistErr);
+    }
+
+    return NextResponse.json({ content: assistantText, thread_id: threadID });
   } catch (err) {
     console.error("chat route error:", err);
     return NextResponse.json(

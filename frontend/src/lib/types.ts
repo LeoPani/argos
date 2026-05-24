@@ -343,6 +343,34 @@ export interface RoyaltyEntry {
   status: "received" | "pending" | "upcoming";
 }
 
+// ─── Chat threads ────────────────────────────────────────────────────────────
+
+export type ChatRole = "user" | "assistant" | "system";
+
+export interface ChatMessage {
+  id: number;
+  thread_id: number;
+  role: ChatRole;
+  content: string;
+  created_at: string;
+}
+
+export interface ChatThread {
+  id: number;
+  title: string;
+  pinned: boolean;
+  archived: boolean;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+  messages?: ChatMessage[];
+}
+
+export interface ChatThreadListResponse {
+  items: ChatThread[];
+  count: number;
+}
+
 // ─── Alerts / Watchlists ─────────────────────────────────────────────────────
 
 export type WatchType = "term" | "brand" | "company" | "patent";

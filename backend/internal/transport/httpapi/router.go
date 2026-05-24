@@ -21,6 +21,7 @@ type Deps struct {
 	ArbitrationAI     *service.ArbitrationAI
 	TTContractService *service.TTContractService
 	PoolService       *service.PoolService
+	ChatService       *service.ChatService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -116,6 +117,17 @@ func NewRouter(deps Deps) http.Handler {
 		mux.HandleFunc("DELETE /api/v1/pools/{id}",                pool.Delete)
 		mux.HandleFunc("POST /api/v1/pools/{id}/members",          pool.AddMember)
 		mux.HandleFunc("DELETE /api/v1/pools/{id}/members/{patentId}", pool.RemoveMember)
+	}
+
+	// ── Chat threads + messages ───────────────────────────────────────────
+	if deps.ChatService != nil {
+		chat := NewChatHandler(deps.ChatService)
+		mux.HandleFunc("GET /api/v1/chat/threads",                  chat.ListThreads)
+		mux.HandleFunc("POST /api/v1/chat/threads",                 chat.CreateThread)
+		mux.HandleFunc("GET /api/v1/chat/threads/{id}",             chat.GetThread)
+		mux.HandleFunc("DELETE /api/v1/chat/threads/{id}",          chat.DeleteThread)
+		mux.HandleFunc("POST /api/v1/chat/threads/{id}/messages",   chat.AppendMessage)
+		mux.HandleFunc("PATCH /api/v1/chat/threads/{id}/title",     chat.UpdateTitle)
 	}
 
 	// ── Watchlists / Alerts ───────────────────────────────────────────────
