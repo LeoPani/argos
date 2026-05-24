@@ -19,6 +19,7 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
 
 import type {
   Patent, PatentListResponse,
+  Trademark,
   UFOPListResponse, UFOPOpportunity, UFOPStatus,
   PortfolioResponse,
   StatsResponse,
@@ -28,6 +29,7 @@ import type {
   TTContract, TTContractListResponse, LicenseKind, ContractStatus,
   PatentPool, PoolListResponse, PoolKind, PoolMember,
   ChatThread, ChatThreadListResponse, ChatRole, ChatMessage,
+  SearchResponse,
 } from "./types";
 
 export const api = {
@@ -44,8 +46,17 @@ export const api = {
       }),
   },
 
+  trademarks: {
+    get: (id: number) => req<Trademark>(`/api/v1/trademarks/${id}`),
+  },
+
   health: {
     check: () => req<{ status: string }>("/health"),
+  },
+
+  search: {
+    query: (q: string, limit = 6) =>
+      req<SearchResponse>(`/api/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   },
 
   portfolio: {

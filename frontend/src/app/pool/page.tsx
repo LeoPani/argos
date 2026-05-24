@@ -16,8 +16,10 @@ import type {
 import {
   Briefcase, Plus, X, FileText, Coins, Layers,
   Building2, Calendar, Percent, RefreshCw, Trash2,
-  CheckCircle2, ArrowRight,
+  CheckCircle2, ArrowRight, Download,
 } from "lucide-react";
+import { toCSV, downloadCSV, csvDate } from "@/lib/csv";
+import { useToast } from "@/components/ui/toast";
 
 type Tab = "contracts" | "pools";
 
@@ -85,6 +87,7 @@ export default function PoolPage() {
 function ContractsTab() {
   const { data, error, isLoading, mutate } = useTTContracts({ limit: "50" });
   const [showForm, setShowForm] = useState(false);
+  const toast = useToast();
 
   const isLive   = !error && !!data;
   const loading  = isLoading && !data && !error;
@@ -93,6 +96,38 @@ function ContractsTab() {
   const active = items.filter(c => c.status === "active").length;
   const totalRoyaltyFloor = items.reduce((s, c) => s + (c.status === "active" ? c.royalty_floor_annual : 0), 0);
   const totalUpfront = items.reduce((s, c) => s + c.upfront_fee, 0);
+
+  function exportContracts() {
+    if (items.length === 0) {
+      toast.warning("Nada para exportar", "Crie pelo menos um contrato.");
+      return;
+    }
+    const csv = toCSV(
+      items.map(c => ({
+        ...c,
+        signed_at:  csvDate(c.signed_at),
+        expires_at: csvDate(c.expires_at),
+      })),
+      [
+        { key: "contract_number",      label: "Contrato"       },
+        { key: "licensor",             label: "Licenciante"    },
+        { key: "licensee",             label: "Licenciada"     },
+        { key: "licensee_cnpj",        label: "CNPJ"           },
+        { key: "license_kind",         label: "Tipo"           },
+        { key: "territory",            label: "Território"     },
+        { key: "field_of_use",         label: "Campo de uso"   },
+        { key: "royalty_rate",         label: "Royalty (%)"    },
+        { key: "royalty_floor_annual", label: "Floor anual"    },
+        { key: "upfront_fee",          label: "Upfront"        },
+        { key: "inventor_share_pct",   label: "Inventores (%)" },
+        { key: "status",               label: "Status"         },
+        { key: "signed_at",            label: "Assinado em"    },
+        { key: "expires_at",           label: "Vence em"       },
+      ],
+    );
+    downloadCSV(csv, `argos-tt-contracts-${new Date().toISOString().slice(0, 10)}.csv`);
+    toast.success("Contratos exportados", `${items.length} contratos no CSV.`);
+  }
 
   return (
     <div className="space-y-6">
@@ -104,6 +139,9 @@ function ContractsTab() {
             : <span className="text-xs text-amber-400">backend offline</span>}
           <Button variant="ghost" size="sm" onClick={() => mutate()}>
             <RefreshCw size={13} /> Atualizar
+          </Button>
+          <Button variant="ghost" size="sm" onClick={exportContracts}>
+            <Download size={13} /> Exportar CSV
           </Button>
           <Button size="sm" onClick={() => setShowForm(s => !s)}>
             {showForm ? <X size={13} /> : <Plus size={13} />}

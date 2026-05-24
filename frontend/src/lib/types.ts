@@ -24,18 +24,30 @@ export interface PatentListResponse {
   pagination: { total: number; limit: number; offset: number };
 }
 
-export type TrademarkStatus = "active" | "pending" | "opposition" | "expired";
+export type TrademarkStatus =
+  | "filed" | "published" | "granted"
+  | "denied" | "archived" | "expired";
 
+export type TrademarkKind =
+  | "nominative" | "figurative" | "mixed" | "three_dimensional";
+
+/** Mirrors domain.Trademark from the Go backend. */
 export interface Trademark {
   id: number;
-  number: string;
+  process_number: string;
   name: string;
-  owner: string;
-  nice_class: number;
+  normalized_name: string;
+  kind: TrademarkKind;
   status: TrademarkStatus;
+  owner: string;
+  nice_classes: number[];
+  image_url: string;
   filing_date: string | null;
-  expiry_date: string | null;
-  cost_annual: number;
+  publication_date: string | null;
+  granted_date: string | null;
+  rpi_issue: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── Portfolio ───────────────────────────────────────────────────────────────
@@ -341,6 +353,23 @@ export interface RoyaltyEntry {
   expected: number;
   received: number | null;
   status: "received" | "pending" | "upcoming";
+}
+
+// ─── Global search ───────────────────────────────────────────────────────────
+
+export interface SearchHit {
+  kind: "patent" | "trademark" | "dispute" | "contract";
+  id: number;
+  reference: string;
+  title: string;
+  subtitle: string;
+  url: string;
+}
+
+export interface SearchResponse {
+  query: string;
+  total: number;
+  hits: SearchHit[];
 }
 
 // ─── Chat threads ────────────────────────────────────────────────────────────

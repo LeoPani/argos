@@ -43,6 +43,24 @@ export function Sidebar() {
         </div>
       </div>
 
+      {/* ⌘K hint */}
+      <button
+        onClick={() => {
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));
+        }}
+        className="mx-2 mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
+        style={{
+          background: "var(--surface-2)", border: "1px solid var(--border)",
+          color: "var(--text-muted)",
+        }}>
+        <Search size={13} />
+        <span className="flex-1 text-left text-xs">Buscar tudo…</span>
+        <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          ⌘K
+        </kbd>
+      </button>
+
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-2">
         {nav.map(({ href, icon: Icon, label }) => {

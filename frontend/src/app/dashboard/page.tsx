@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -273,19 +274,25 @@ export default function DashboardPage() {
             {stats.recent_activity.map(item => {
               const info = kindInfo[item.kind];
               const Icon = info.Icon;
+              const href =
+                item.kind === "patent"    ? `/patents/${item.id}` :
+                item.kind === "trademark" ? `/trademarks/${item.id}` :
+                item.kind === "dispute"   ? "/arbitragem" :
+                item.kind === "ufop"      ? "/ufop" : "/dashboard";
               return (
-                <div key={`${item.kind}-${item.id}`}
-                  className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-white/5 transition-colors"
-                  style={{ borderLeft: `2px solid ${info.color}` }}>
-                  <Icon size={14} style={{ color: info.color }} />
-                  <Badge variant="muted">{info.label}</Badge>
-                  <span className="font-mono text-xs text-indigo-400 shrink-0">{item.reference}</span>
-                  <span className="text-sm text-white flex-1 truncate">{item.title}</span>
-                  <Badge variant="muted">{item.status}</Badge>
-                  <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
-                    {formatDate(item.created_at)}
-                  </span>
-                </div>
+                <Link key={`${item.kind}-${item.id}`} href={href}>
+                  <div className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-white/5 cursor-pointer transition-colors"
+                    style={{ borderLeft: `2px solid ${info.color}` }}>
+                    <Icon size={14} style={{ color: info.color }} />
+                    <Badge variant="muted">{info.label}</Badge>
+                    <span className="font-mono text-xs text-indigo-400 shrink-0">{item.reference}</span>
+                    <span className="text-sm text-white flex-1 truncate">{item.title}</span>
+                    <Badge variant="muted">{item.status}</Badge>
+                    <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
+                      {formatDate(item.created_at)}
+                    </span>
+                  </div>
+                </Link>
               );
             })}
           </div>

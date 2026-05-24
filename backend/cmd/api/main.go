@@ -119,6 +119,8 @@ func run() error {
 	chatRepo := pg.NewChatRepo(db)
 	chatSvc := service.NewChatService(chatRepo)
 
+	searchSvc := service.NewSearchService(db)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -136,6 +138,7 @@ func run() error {
 		TTContractService: ttContractSvc,
 		PoolService:       poolSvc,
 		ChatService:       chatSvc,
+		SearchService:     searchSvc,
 	})
 
 	// --- HTTP server ---

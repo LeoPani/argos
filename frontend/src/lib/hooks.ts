@@ -6,7 +6,7 @@
 import useSWR from "swr";
 import { api } from "./api";
 import type {
-  Patent, PatentListResponse,
+  Patent, PatentListResponse, Trademark,
   UFOPListResponse, PortfolioResponse,
   StatsResponse, WatchlistListResponse,
   DisputeListResponse,
@@ -39,6 +39,14 @@ export function usePatent(id: number | null) {
   return useSWR<Patent>(
     id ? `/api/v1/patents/${id}` : null,
     () => api.patents.get(id!),
+    SWR_OPTIONS
+  );
+}
+
+export function useTrademark(id: number | null) {
+  return useSWR<Trademark>(
+    id ? `/api/v1/trademarks/${id}` : null,
+    () => api.trademarks.get(id!),
     SWR_OPTIONS
   );
 }

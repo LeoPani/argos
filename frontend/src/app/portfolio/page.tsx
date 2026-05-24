@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,8 +17,10 @@ import {
 import {
   TrendingUp, AlertCircle, Search, Plus, Link2,
   FileText, Tag, Cpu, Package, Lightbulb, ShieldAlert,
-  RefreshCw,
+  RefreshCw, Download,
 } from "lucide-react";
+import { toCSV, downloadCSV, csvDate } from "@/lib/csv";
+import { useToast } from "@/components/ui/toast";
 
 type Tab = "own" | "third";
 
@@ -64,9 +67,41 @@ export default function PortfolioPage() {
   const [thirdPartyResult, setThirdPartyResult] = useState(false);
 
   const { data, error, isLoading, mutate } = usePortfolio();
+  const toast = useToast();
 
   const isLive  = !error && !!data;
   const portfolioLoading = isLoading && !data && !error;
+
+  function handleExport() {
+    if (!data || data.assets.length === 0) {
+      toast.warning("Nada para exportar", "O portfolio está vazio.");
+      return;
+    }
+    const csv = toCSV(
+      data.assets.map(a => ({
+        ...a,
+        filing_date:  csvDate(a.filing_date),
+        expiry_date:  csvDate(a.expiry_date),
+        next_fee_date: csvDate(a.next_fee_date),
+      })),
+      [
+        { key: "type",         label: "Tipo" },
+        { key: "number",       label: "Número" },
+        { key: "title",        label: "Título" },
+        { key: "owner",        label: "Titular" },
+        { key: "status",       label: "Status" },
+        { key: "ipc_code",     label: "IPC" },
+        { key: "filing_date",  label: "Depósito" },
+        { key: "expiry_date",  label: "Expiração" },
+        { key: "next_fee_date",label: "Próxima taxa" },
+        { key: "cost_monthly", label: "Custo mensal (R$)" },
+        { key: "cost_annual",  label: "Custo anual (R$)" },
+        { key: "cost_total",   label: "Custo total (R$)" },
+      ],
+    );
+    downloadCSV(csv, `argos-portfolio-${new Date().toISOString().slice(0, 10)}.csv`);
+    toast.success("Portfolio exportado", `${data.assets.length} ativos baixados como CSV.`);
+  }
 
   const assets: PortfolioAsset[]       = isLive ? data!.assets          : mockPortfolioAssets;
   const timeline: CostPoint[]          = isLive ? data!.cost_timeline    : mockCostTimeline;
@@ -112,6 +147,9 @@ export default function PortfolioPage() {
           )}
           <Button variant="ghost" size="sm" onClick={() => mutate()}>
             <RefreshCw size={13} /> Atualizar
+          </Button>
+          <Button variant="ghost" size="sm" onClick={handleExport}>
+            <Download size={13} /> Exportar CSV
           </Button>
           <Button size="sm">
             <Plus size={14} /> Adicionar ativo
@@ -226,7 +264,21 @@ export default function PortfolioPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map(asset => (
+                    {filtered.map(asset => {
+                      // Extract numeric id from "pat-{N}" or "tm-{N}" prefix
+                      const numericID = Number(asset.id.split("-")[1]);
+                      const detailURL =
+                        asset.type === "PI" || asset.type === "MU"
+                          ? `/patents/${numericID}`
+                          : asset.type === "TM"
+                            ? `/trademarks/${numericID}`
+                            : null;
+                      const TitleCell = detailURL
+                        ? ({ children }: { children: React.ReactNode }) =>
+                            <Link href={detailURL} className="hover:underline">{children}</Link>
+                        : ({ children }: { children: React.ReactNode }) =>
+                            <span>{children}</span>;
+                      return (
                       <tr key={asset.id} style={{ borderBottom: "1px solid var(--border)" }} className="hover:bg-white/5">
                         <td className="py-3 pr-3">
                           <div className="flex items-center gap-1.5">
@@ -235,8 +287,10 @@ export default function PortfolioPage() {
                           </div>
                         </td>
                         <td className="py-3 pr-3">
-                          <p className="text-white font-medium text-xs max-w-[180px] truncate">{asset.title}</p>
-                          <p className="font-mono text-xs text-indigo-400">{asset.number}</p>
+                          <TitleCell>
+                            <p className="text-white font-medium text-xs max-w-[180px] truncate">{asset.title}</p>
+                            <p className="font-mono text-xs text-indigo-400">{asset.number}</p>
+                          </TitleCell>
                           {asset.ipc_code && (
                             <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>IPC: {asset.ipc_code}</p>
                           )}
@@ -257,7 +311,8 @@ export default function PortfolioPage() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

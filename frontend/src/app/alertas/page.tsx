@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import type { Watchlist, WatchType } from "@/lib/types";
 import { SkeletonList } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useToast } from "@/components/ui/toast";
 import {
   Bell, Plus, Eye, Building2, Tag, FileText, Search,
   Trash2, RefreshCw, Zap,
@@ -30,6 +31,7 @@ const typeLabel: Record<WatchType, string> = {
 
 export default function AlertasPage() {
   const { data, error, mutate, isLoading } = useWatchlists();
+  const toast = useToast();
   const [newLabel, setNewLabel] = useState("");
   const [newType,  setNewType]  = useState<WatchType>("term");
   const [newQuery, setNewQuery] = useState("");
@@ -53,8 +55,9 @@ export default function AlertasPage() {
       });
       setNewLabel(""); setNewQuery(""); setNewType("term");
       mutate();
+      toast.success("Alerta criado", `Monitorando "${newLabel.trim()}".`);
     } catch (err) {
-      console.error(err);
+      toast.error("Falha ao criar alerta", err instanceof Error ? err.message : "Erro");
     } finally { setBusy(null); }
   }
 
@@ -63,23 +66,32 @@ export default function AlertasPage() {
     try {
       await api.watchlists.delete(id);
       mutate();
-    } finally { setBusy(null); }
+      toast.info("Alerta removido");
+    } catch { toast.error("Falha ao remover"); }
+    finally { setBusy(null); }
   }
 
   async function handleCheck(id: number) {
     setBusy(id);
     try {
-      await api.watchlists.check(id);
+      const updated = await api.watchlists.check(id);
       mutate();
-    } finally { setBusy(null); }
+      toast.success(
+        updated.new_count > 0 ? `${updated.new_count} novo(s) match(es)` : "Verificação concluída",
+        `Watchlist "${updated.label}"`,
+      );
+    } catch { toast.error("Falha na verificação"); }
+    finally { setBusy(null); }
   }
 
   async function handleCheckAll() {
     setBusy("all");
     try {
-      await api.watchlists.checkAll();
+      const r = await api.watchlists.checkAll();
       mutate();
-    } finally { setBusy(null); }
+      toast.success("Verificação completa", `${r.checked} alertas escaneados.`);
+    } catch { toast.error("Falha na verificação"); }
+    finally { setBusy(null); }
   }
 
   return (

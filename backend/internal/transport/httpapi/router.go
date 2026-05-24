@@ -22,6 +22,7 @@ type Deps struct {
 	TTContractService *service.TTContractService
 	PoolService       *service.PoolService
 	ChatService       *service.ChatService
+	SearchService     *service.SearchService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -117,6 +118,12 @@ func NewRouter(deps Deps) http.Handler {
 		mux.HandleFunc("DELETE /api/v1/pools/{id}",                pool.Delete)
 		mux.HandleFunc("POST /api/v1/pools/{id}/members",          pool.AddMember)
 		mux.HandleFunc("DELETE /api/v1/pools/{id}/members/{patentId}", pool.RemoveMember)
+	}
+
+	// ── Global federated search ───────────────────────────────────────────
+	if deps.SearchService != nil {
+		s := NewSearchHandler(deps.SearchService)
+		mux.HandleFunc("GET /api/v1/search", s.Search)
 	}
 
 	// ── Chat threads + messages ───────────────────────────────────────────
