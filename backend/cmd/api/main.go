@@ -27,9 +27,10 @@ import (
 	"github.com/LeoPani/argos/backend/internal/config"
 	"github.com/LeoPani/argos/backend/internal/platform/database"
 	"github.com/LeoPani/argos/backend/internal/platform/logger"
-	"github.com/LeoPani/argos/backend/internal/repository/postgres"
+	pg "github.com/LeoPani/argos/backend/internal/repository/postgres"
 	"github.com/LeoPani/argos/backend/internal/service"
 	"github.com/LeoPani/argos/backend/internal/transport/httpapi"
+	"github.com/LeoPani/argos/backend/internal/worker/ufop"
 )
 
 func main() {
@@ -81,14 +82,34 @@ func run() error {
 	log.Info("ai layer ready", "bert_url", cfg.AIBertURL)
 
 	// --- Repository + Service ---
-	patentRepo := postgres.NewPatentRepo(db)
+	patentRepo := pg.NewPatentRepo(db)
 	patentSvc := service.NewPatentService(patentRepo, aiSvc)
+
+	trademarkRepo := pg.NewTrademarkRepo(db)
+	trademarkSvc := service.NewTrademarkService(trademarkRepo)
+
+	disputeRepo := pg.NewDisputeRepo(db)
+	disputeSvc := service.NewDisputeService(disputeRepo)
+
+	publicationRepo := pg.NewPublicationRepo(db)
+	priorArtSvc := service.NewPriorArtService(patentRepo, trademarkRepo, publicationRepo)
+
+	ufopRepo := pg.NewUFOPRepo(db)
+	oaiClient := ufop.NewOAIClient(log)
+	portalScraper := ufop.NewPortalScraper(log)
+	analyzer := ufop.NewAnalyzer(aiSvc)
+	ufopSvc := service.NewUFOPService(ufopRepo, publicationRepo, oaiClient, portalScraper, analyzer, log)
+
 	log.Info("services wired")
 
 	// --- Router ---
 	handler := httpapi.NewRouter(httpapi.Deps{
-		DB:            db,
-		PatentService: patentSvc,
+		DB:               db,
+		PatentService:    patentSvc,
+		TrademarkService: trademarkSvc,
+		DisputeService:   disputeSvc,
+		PriorArtService:  priorArtSvc,
+		UFOPService:      ufopSvc,
 	})
 
 	// --- HTTP server ---

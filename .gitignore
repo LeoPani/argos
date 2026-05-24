@@ -16,3 +16,18 @@
 .env.*.local
 
 # Subprojects have their own .gitignore (backend/, ai-service/)
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+
+# Go binaries
+backend/bin/
+
+# Model weights (large — usar DVC ou S3)
+argos_model/
+argos_model/checkpoint-*/
+
+# Docker override local
+docker-compose.override.yml

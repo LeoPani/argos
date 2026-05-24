@@ -12,34 +12,48 @@ import (
 )
 
 // PatentRepository is the persistence contract for the Patent aggregate.
-// Implementations MUST:
-//   - Honor context cancellation/timeouts on every method.
-//   - Translate driver-specific errors into domain sentinels
-//     (domain.ErrNotFound on no rows, domain.ErrDuplicate on
-//     unique-constraint violations, etc.).
-//   - Be safe for concurrent use across goroutines.
 type PatentRepository interface {
-	// Insert persists a new patent. The Patent.ID and timestamp fields
-	// are populated on the input struct in-place.
-	//
-	// Returns domain.ErrDuplicate if ApplicationNumber already exists.
 	Insert(ctx context.Context, p *domain.Patent) error
-
-	// GetByID fetches a single patent by its primary key.
-	// Returns domain.ErrNotFound if no row matches.
 	GetByID(ctx context.Context, id int64) (*domain.Patent, error)
-
-	// GetByApplicationNumber fetches a patent by its (unique) INPI
-	// application number. Used by the worker to deduplicate ingestion.
-	// Returns domain.ErrNotFound if no row matches.
 	GetByApplicationNumber(ctx context.Context, appNum string) (*domain.Patent, error)
-
-	// List returns patents matching the filter, ordered by publication
-	// date descending then id descending. The caller MUST call
-	// f.Normalize() before invoking this method.
 	List(ctx context.Context, f domain.PatentFilter) ([]domain.Patent, error)
-
-	// Count returns the total rows matching the filter, ignoring the
-	// Limit/Offset fields. Used by handlers to render pagination metadata.
 	Count(ctx context.Context, f domain.PatentFilter) (int64, error)
+}
+
+// TrademarkRepository is the persistence contract for the Trademark aggregate.
+type TrademarkRepository interface {
+	Insert(ctx context.Context, t *domain.Trademark) error
+	GetByID(ctx context.Context, id int64) (*domain.Trademark, error)
+	GetByProcessNumber(ctx context.Context, pn string) (*domain.Trademark, error)
+	List(ctx context.Context, f domain.TrademarkFilter) ([]domain.Trademark, error)
+	Count(ctx context.Context, f domain.TrademarkFilter) (int64, error)
+}
+
+// PublicationRepository is the persistence contract for scientific publications.
+type PublicationRepository interface {
+	Upsert(ctx context.Context, p *domain.Publication) error
+	GetByID(ctx context.Context, id int64) (*domain.Publication, error)
+	GetByExternalID(ctx context.Context, source domain.PublicationSource, externalID string) (*domain.Publication, error)
+	List(ctx context.Context, f domain.PublicationFilter) ([]domain.Publication, error)
+	Count(ctx context.Context, f domain.PublicationFilter) (int64, error)
+}
+
+// DisputeRepository is the persistence contract for arbitration disputes.
+type DisputeRepository interface {
+	Insert(ctx context.Context, d *domain.Dispute) error
+	GetByID(ctx context.Context, id int64) (*domain.Dispute, error)
+	List(ctx context.Context, f domain.DisputeFilter) ([]domain.Dispute, error)
+	Count(ctx context.Context, f domain.DisputeFilter) (int64, error)
+	UpdateStatus(ctx context.Context, id int64, status domain.DisputeStatus) error
+	AddEvent(ctx context.Context, e *domain.DisputeEvent) error
+	AddDocument(ctx context.Context, doc *domain.DisputeDocument) error
+}
+
+// UFOPRepository is the persistence contract for UFOP PI opportunities.
+type UFOPRepository interface {
+	Upsert(ctx context.Context, o *domain.UFOPOpportunity) error
+	GetByID(ctx context.Context, id int64) (*domain.UFOPOpportunity, error)
+	List(ctx context.Context, f domain.UFOPFilter) ([]domain.UFOPOpportunity, error)
+	Count(ctx context.Context, f domain.UFOPFilter) (int64, error)
+	UpdateStatus(ctx context.Context, id int64, status domain.UFOPOpportunityStatus) error
 }

@@ -7,44 +7,77 @@ import (
 	"github.com/LeoPani/argos/backend/internal/service"
 )
 
-// Deps bundles everything NewRouter needs to construct the handler chain.
-// Grouping dependencies in a struct (instead of a long parameter list)
-// keeps main.go readable and makes future additions painless.
+// Deps bundles all services the router needs.
 type Deps struct {
-	DB            *sql.DB
-	PatentService *service.PatentService
+	DB               *sql.DB
+	PatentService    *service.PatentService
+	TrademarkService *service.TrademarkService
+	DisputeService   *service.DisputeService
+	PriorArtService  *service.PriorArtService
+	UFOPService      *service.UFOPService
 }
 
-// NewRouter assembles the application's HTTP handler chain.
+// NewRouter assembles the full HTTP handler chain.
 //
 // Route map:
 //
-//	GET  /health                       -> liveness probe
-//	POST /api/v1/patents               -> create + classify a patent
-//	GET  /api/v1/patents               -> list (with filters/pagination)
-//	GET  /api/v1/patents/{id}          -> single patent by id
-//
-// Middleware order (outermost first):
-//   1. RecoverMiddleware  — catches panics before they kill the process
-//   2. LoggingMiddleware  — observes the recovered request/response
-//
-// Recovery wraps Logging so that even panicking handlers still emit a
-// structured log line (the panic shows up as status=500).
+//	GET    /health
+//	POST   /api/v1/patents
+//	GET    /api/v1/patents
+//	GET    /api/v1/patents/{id}
+//	POST   /api/v1/trademarks
+//	GET    /api/v1/trademarks
+//	GET    /api/v1/trademarks/{id}
+//	POST   /api/v1/disputes
+//	GET    /api/v1/disputes
+//	GET    /api/v1/disputes/{id}
+//	PATCH  /api/v1/disputes/{id}/status
+//	GET    /api/v1/prior-art
 func NewRouter(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 
-	// Build handlers
+	// ── Health ────────────────────────────────────────────────────────────
 	health := NewHealthHandler(deps.DB)
-	patents := NewPatentHandler(deps.PatentService)
-
-	// Health
 	mux.HandleFunc("GET /health", health.Get)
 
-	// Patents (Phase 1)
+	// ── Patents (Phase 1) ─────────────────────────────────────────────────
+	patents := NewPatentHandler(deps.PatentService)
 	mux.HandleFunc("POST /api/v1/patents", patents.Create)
 	mux.HandleFunc("GET /api/v1/patents", patents.List)
 	mux.HandleFunc("GET /api/v1/patents/{id}", patents.GetByID)
 
-	// Apply middleware (outermost first).
-	return RecoverMiddleware(LoggingMiddleware(mux))
+	// ── Trademarks (Phase C) ──────────────────────────────────────────────
+	if deps.TrademarkService != nil {
+		trademarks := NewTrademarkHandler(deps.TrademarkService)
+		mux.HandleFunc("POST /api/v1/trademarks", trademarks.Create)
+		mux.HandleFunc("GET /api/v1/trademarks", trademarks.List)
+		mux.HandleFunc("GET /api/v1/trademarks/{id}", trademarks.GetByID)
+	}
+
+	// ── Disputes / Arbitration (Phase 5) ─────────────────────────────────
+	if deps.DisputeService != nil {
+		disputes := NewDisputeHandler(deps.DisputeService)
+		mux.HandleFunc("POST /api/v1/disputes", disputes.Open)
+		mux.HandleFunc("GET /api/v1/disputes", disputes.List)
+		mux.HandleFunc("GET /api/v1/disputes/{id}", disputes.GetByID)
+		mux.HandleFunc("PATCH /api/v1/disputes/{id}/status", disputes.UpdateStatus)
+	}
+
+	// ── Prior Art Search ──────────────────────────────────────────────────
+	if deps.PriorArtService != nil {
+		priorArt := NewPriorArtHandler(deps.PriorArtService)
+		mux.HandleFunc("GET /api/v1/prior-art", priorArt.Search)
+	}
+
+	// ── UFOP Intelligence (Phase E) ───────────────────────────────────────
+	if deps.UFOPService != nil {
+		ufop := NewUFOPHandler(deps.UFOPService)
+		mux.HandleFunc("GET /api/v1/ufop/opportunities", ufop.List)
+		mux.HandleFunc("GET /api/v1/ufop/opportunities/{id}", ufop.GetByID)
+		mux.HandleFunc("PATCH /api/v1/ufop/opportunities/{id}/status", ufop.UpdateStatus)
+	}
+
+	// Middleware stack (outermost → innermost):
+	// CORS → Recover (catches panics) → Logging → handler
+	return CORSMiddleware(RecoverMiddleware(LoggingMiddleware(mux)))
 }
