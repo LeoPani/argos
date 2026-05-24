@@ -30,15 +30,17 @@ export default function MetricsPage() {
   const { data: depts } = useDepartments();
   const { data: stock } = useKnowledgeStock("UFOP");
   const { data: forecast } = useRoyaltyForecast(10);
-  const [enriching, setEnriching] = useState(false);
+  const [enriching, setEnriching]   = useState(false);
+  const [lensSource, setLensSource] = useState<"lens" | "mock" | "">("");
   const toast = useToast();
 
   async function enrichAll() {
     setEnriching(true);
     try {
       const r = await api.metrics.enrichAll(50);
+      setLensSource(r.source as "lens" | "mock");
       toast.success(
-        `Enrichment concluído (${r.source})`,
+        r.source === "lens" ? "Enriquecido via Lens.org REAL" : "Enriquecimento em modo mock",
         `${r.processed} patentes UFOP processadas · média ${r.avg_fwd_citations.toFixed(1)} forward citations`,
       );
       mutate();
@@ -413,13 +415,28 @@ export default function MetricsPage() {
         )}
       </Card>
 
-      {/* Footnote — mock disclaimer */}
+      {/* Footnote — Lens.org status */}
       <div className="text-xs text-center p-3 rounded"
-        style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-        <AlertCircle size={12} className="inline mr-1 text-amber-400" />
-        Sem token Lens.org configurado: dados de citações são mock determinístico (calibrados via NBER 2001).
-        Configure <span className="font-mono">LENS_API_TOKEN</span> para dados reais.
-        <Link href="/metodologia" className="ml-1 text-indigo-400 hover:text-indigo-300">
+        style={{
+          background: lensSource === "lens" ? "#34d39915" : "var(--surface)",
+          border: `1px solid ${lensSource === "lens" ? "#34d39940" : "var(--border)"}`,
+          color: "var(--text-muted)",
+        }}>
+        {lensSource === "lens" ? (
+          <>
+            <span className="text-emerald-400">✓ Dados reais via Lens.org Patent API</span>
+            {" — "}
+            Citações forward/backward, family size e claims oficiais.
+          </>
+        ) : (
+          <>
+            <AlertCircle size={12} className="inline mr-1 text-amber-400" />
+            <span className="text-white">Modo mock</span>{" "}
+            (dados determinísticos calibrados via NBER 2001).
+            Configure <span className="font-mono text-amber-300">LENS_API_TOKEN</span> no ambiente para dados reais.
+          </>
+        )}
+        <Link href="/metodologia" className="ml-2 text-indigo-400 hover:text-indigo-300">
           Ler metodologia <ArrowRight size={9} className="inline" />
         </Link>
       </div>

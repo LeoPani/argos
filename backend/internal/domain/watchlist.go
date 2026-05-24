@@ -22,15 +22,17 @@ const (
 
 // Watchlist is a saved monitoring subscription.
 type Watchlist struct {
-	ID        int64       `json:"id"`
-	Label     string      `json:"label"`
-	Type      WatchType   `json:"watch_type"`
-	Query     string      `json:"query"`
-	LastCheck *time.Time  `json:"last_check"`
-	NewCount  int         `json:"new_count"`
-	Status    WatchStatus `json:"status"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	ID                   int64       `json:"id"`
+	Label                string      `json:"label"`
+	Type                 WatchType   `json:"watch_type"`
+	Query                string      `json:"query"`
+	LastCheck            *time.Time  `json:"last_check"`
+	NewCount             int         `json:"new_count"`
+	Status               WatchStatus `json:"status"`
+	AutoDispute          bool        `json:"auto_dispute"`
+	SimilarityThreshold  int         `json:"similarity_threshold"`
+	CreatedAt            time.Time   `json:"created_at"`
+	UpdatedAt            time.Time   `json:"updated_at"`
 }
 
 // Validate enforces invariants before insertion.
@@ -52,6 +54,9 @@ func (w *Watchlist) Validate() error {
 	}
 	if w.Status == "" {
 		w.Status = WatchStatusOK
+	}
+	if w.SimilarityThreshold == 0 {
+		w.SimilarityThreshold = 70 // default consistent with migration
 	}
 	return nil
 }

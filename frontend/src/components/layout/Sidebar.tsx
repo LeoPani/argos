@@ -15,12 +15,14 @@ import {
   Settings,
   Award,
   Sparkles,
+  Briefcase,
 } from "lucide-react";
 
 const nav = [
   { href: "/dashboard", icon: LayoutDashboard, label: "BI & Analytics" },
   { href: "/metricas",  icon: Award, label: "Métricas Acadêmicas" },
   { href: "/smart-filing", icon: Sparkles, label: "Smart Filing" },
+  { href: "/marketplace",  icon: Briefcase, label: "TT Marketplace" },
   { href: "/consultas", icon: Search, label: "Consultas" },
   { href: "/portfolio", icon: FolderOpen, label: "Portfolio de PI" },
   { href: "/arbitragem", icon: Scale, label: "Arbitragem" },

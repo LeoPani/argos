@@ -76,3 +76,66 @@ button > div[class*="rounded-xl"]:hover {
   0%, 100% { opacity: 1;   box-shadow: 0 0 0 0   rgba(52, 211, 153, 0.5); }
   50%      { opacity: 0.7; box-shadow: 0 0 0 4px rgba(52, 211, 153, 0); }
 }
+
+/* ─── Mobile responsive (< 768px) ─────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Sidebar fica no topo como bar horizontal */
+  aside.fixed.inset-y-0.left-0 {
+    position: fixed;
+    inset: 0 0 auto 0;
+    width: 100%;
+    height: 56px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    z-index: 40;
+  }
+
+  /* Esconde a logo+ description e o ⌘K button em mobile */
+  aside .px-5.py-5 { display: none; }
+  aside button[onClick]:has(kbd) { display: none; }
+
+  /* Nav fica row */
+  aside nav {
+    display: flex;
+    flex-direction: row;
+    flex: 1;
+    overflow-x: auto;
+    padding: 8px;
+  }
+  aside nav a {
+    flex-shrink: 0;
+    margin-right: 4px;
+    margin-bottom: 0 !important;
+  }
+  aside nav a span:not([class*="text-"]) { display: none; } /* hide labels, show icons */
+
+  /* Bottom (Settings) link */
+  aside .border-t { display: none; }
+
+  /* Main content sai do ml-56 */
+  main.ml-56 {
+    margin-left: 0;
+    padding-top: 56px;
+  }
+
+  /* Tables scrollable horizontalmente */
+  .overflow-x-auto { -webkit-overflow-scrolling: touch; }
+
+  /* Reduz paddings nas pages */
+  .p-8 { padding: 1rem; }
+
+  /* Grids passam pra 1-2 colunas */
+  .grid-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-cols-3 { grid-template-columns: 1fr; }
+  .grid-cols-2 { grid-template-columns: 1fr; }
+
+  /* Header em chat ocupa 100% */
+  .w-56 { width: 100%; }
+  .w-72 { width: 100%; }
+
+  /* Botões maiores pra touch */
+  button { min-height: 36px; }
+}

@@ -106,7 +106,7 @@ func run() error {
 	statsSvc := service.NewStatsService(db)
 
 	watchlistRepo := pg.NewWatchlistRepo(db)
-	watchlistSvc := service.NewWatchlistService(watchlistRepo, patentRepo, trademarkRepo)
+	watchlistSvc := service.NewWatchlistService(watchlistRepo, patentRepo, trademarkRepo, disputeRepo)
 
 	arbitrationRepo := pg.NewArbitrationRepo(db)
 	arbitrationAI := service.NewArbitrationAI(arbitrationRepo, patentRepo, trademarkRepo, disputeRepo)
@@ -129,6 +129,10 @@ func run() error {
 
 	smartFilingSvc := service.NewSmartFilingService(aiSvc, patentRepo)
 
+	marketplaceSvc := service.NewMarketplaceService(db)
+
+	citationNetSvc := service.NewCitationNetworkService(db)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -149,7 +153,9 @@ func run() error {
 		SearchService:     searchSvc,
 		MetricsService:     metricsSvc,
 		EnrichmentService:  enrichmentSvc,
-		SmartFilingService: smartFilingSvc,
+		SmartFilingService:     smartFilingSvc,
+		MarketplaceService:     marketplaceSvc,
+		CitationNetworkService: citationNetSvc,
 	})
 
 	// --- HTTP server ---

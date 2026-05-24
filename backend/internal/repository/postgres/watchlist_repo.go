@@ -16,17 +16,18 @@ type WatchlistRepo struct{ db *sql.DB }
 // NewWatchlistRepo creates a new repo.
 func NewWatchlistRepo(db *sql.DB) *WatchlistRepo { return &WatchlistRepo{db: db} }
 
-const selectWatchlistCols = `id, label, watch_type, query, last_check, new_count, status, created_at, updated_at`
+const selectWatchlistCols = `id, label, watch_type, query, last_check, new_count, status, auto_dispute, similarity_threshold, created_at, updated_at`
 
 // Insert adds a new watchlist entry.
 func (r *WatchlistRepo) Insert(ctx context.Context, w *domain.Watchlist) error {
 	const q = `
-		INSERT INTO watchlists (label, watch_type, query, status)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO watchlists (label, watch_type, query, status, auto_dispute, similarity_threshold)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, last_check, new_count, created_at, updated_at`
 
 	err := r.db.QueryRowContext(ctx, q,
 		w.Label, string(w.Type), w.Query, string(w.Status),
+		w.AutoDispute, w.SimilarityThreshold,
 	).Scan(&w.ID, &w.LastCheck, &w.NewCount, &w.CreatedAt, &w.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert watchlist %q: %w", w.Label, err)
@@ -107,7 +108,8 @@ func scanWatchlist(s watchlistRow) (*domain.Watchlist, error) {
 	)
 	err := s.Scan(
 		&w.ID, &w.Label, &wType, &w.Query, &lastCheck,
-		&w.NewCount, &status, &w.CreatedAt, &w.UpdatedAt,
+		&w.NewCount, &status, &w.AutoDispute, &w.SimilarityThreshold,
+		&w.CreatedAt, &w.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err

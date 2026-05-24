@@ -35,6 +35,8 @@ export default function AlertasPage() {
   const [newLabel, setNewLabel] = useState("");
   const [newType,  setNewType]  = useState<WatchType>("term");
   const [newQuery, setNewQuery] = useState("");
+  const [newAutoDispute, setNewAutoDispute] = useState(false);
+  const [newThreshold, setNewThreshold]     = useState(70);
   const [busy, setBusy]         = useState<number | "create" | "all" | null>(null);
 
   const isLive   = !error && !!data;
@@ -52,10 +54,18 @@ export default function AlertasPage() {
         label: newLabel.trim(),
         watch_type: newType,
         query: newQuery.trim() || newLabel.trim(),
+        auto_dispute: newAutoDispute,
+        similarity_threshold: newThreshold,
       });
       setNewLabel(""); setNewQuery(""); setNewType("term");
+      setNewAutoDispute(false); setNewThreshold(70);
       mutate();
-      toast.success("Alerta criado", `Monitorando "${newLabel.trim()}".`);
+      toast.success(
+        "Alerta criado",
+        newAutoDispute
+          ? `"${newLabel.trim()}" — auto-dispute ativo (threshold ${newThreshold}%)`
+          : `Monitorando "${newLabel.trim()}".`,
+      );
     } catch (err) {
       toast.error("Falha ao criar alerta", err instanceof Error ? err.message : "Erro");
     } finally { setBusy(null); }
@@ -188,6 +198,35 @@ export default function AlertasPage() {
               style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}
             />
           </div>
+
+          {/* Auto-dispute mode */}
+          <div className="rounded-lg p-3" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={newAutoDispute}
+                onChange={e => setNewAutoDispute(e.target.checked)}
+                className="mt-0.5" />
+              <div>
+                <p className="text-sm text-white font-medium flex items-center gap-1">
+                  ⚡ Detector proativo de infração
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  Cria automaticamente uma disputa em draft quando achar match com similaridade alta
+                  (padrão indústria: CompuMark, Markify).
+                </p>
+              </div>
+            </label>
+            {newAutoDispute && (
+              <div className="mt-2 ml-6 flex items-center gap-2">
+                <label className="text-xs" style={{ color: "var(--text-muted)" }}>Threshold:</label>
+                <input type="range" min="30" max="100" step="5"
+                  value={newThreshold}
+                  onChange={e => setNewThreshold(Number(e.target.value))}
+                  className="flex-1" />
+                <span className="text-xs font-mono text-amber-300 w-10 text-right">{newThreshold}%</span>
+              </div>
+            )}
+          </div>
+
           <Button type="submit" size="sm" disabled={busy === "create" || !newLabel.trim()}>
             {busy === "create"
               ? <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Criando…</>
@@ -231,6 +270,9 @@ export default function AlertasPage() {
                   )}
                   {alert.query && alert.query !== alert.label && (
                     <span className="font-mono text-xs text-indigo-400">"{alert.query}"</span>
+                  )}
+                  {alert.auto_dispute && (
+                    <Badge variant="info">⚡ auto-dispute {alert.similarity_threshold}%</Badge>
                   )}
                 </div>
                 <p className="text-sm font-medium text-white">{alert.label}</p>

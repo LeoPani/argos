@@ -18,9 +18,11 @@ func NewWatchlistHandler(svc *service.WatchlistService) *WatchlistHandler {
 }
 
 type createWatchlistRequest struct {
-	Label string           `json:"label"`
-	Type  domain.WatchType `json:"watch_type"`
-	Query string           `json:"query"`
+	Label               string           `json:"label"`
+	Type                domain.WatchType `json:"watch_type"`
+	Query               string           `json:"query"`
+	AutoDispute         bool             `json:"auto_dispute"`
+	SimilarityThreshold int              `json:"similarity_threshold"`
 }
 
 // List handles GET /api/v1/watchlists
@@ -49,9 +51,11 @@ func (h *WatchlistHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	saved, err := h.svc.Create(r.Context(), &domain.Watchlist{
-		Label: req.Label,
-		Type:  req.Type,
-		Query: req.Query,
+		Label:               req.Label,
+		Type:                req.Type,
+		Query:               req.Query,
+		AutoDispute:         req.AutoDispute,
+		SimilarityThreshold: req.SimilarityThreshold,
 	})
 	if err != nil {
 		httputil.Error(w, err)

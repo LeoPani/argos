@@ -26,6 +26,8 @@ type Deps struct {
 	MetricsService     *service.MetricsService
 	EnrichmentService  *service.EnrichmentService
 	SmartFilingService *service.SmartFilingService
+	MarketplaceService *service.MarketplaceService
+	CitationNetworkService *service.CitationNetworkService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -135,6 +137,18 @@ func NewRouter(deps Deps) http.Handler {
 		mux.HandleFunc("GET /api/v1/metrics/knowledge-stock",         m.KnowledgeStock)
 		mux.HandleFunc("GET /api/v1/metrics/royalty-forecast",        m.RoyaltyForecast)
 		mux.HandleFunc("GET /api/v1/metrics/methodology",             m.Methodology)
+	}
+
+	// ── TT Marketplace público ────────────────────────────────────────────
+	if deps.MarketplaceService != nil {
+		mp := NewMarketplaceHandler(deps.MarketplaceService)
+		mux.HandleFunc("GET /api/v1/marketplace", mp.List)
+	}
+
+	// ── Citation Network (Narin 1994) ─────────────────────────────────────
+	if deps.CitationNetworkService != nil {
+		cn := NewCitationNetworkHandler(deps.CitationNetworkService)
+		mux.HandleFunc("GET /api/v1/citations/network/{id}", cn.Build)
 	}
 
 	// ── Smart Filing Assistant ────────────────────────────────────────────

@@ -18,6 +18,7 @@ import type {
   MaintenanceRecommendation, InventorProfile,
   DepartmentHealth, KnowledgeStockResponse,
   RoyaltyForecast,
+  MarketplaceResponse, CitationNetwork,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -219,6 +220,21 @@ export function useRoyaltyForecast(years = 10) {
   return useSWR<RoyaltyForecast>(
     `/api/v1/metrics/royalty-forecast?years=${years}`,
     () => api.metrics.royaltyForecast(years),
+    SWR_OPTIONS
+  );
+}
+
+// ─── Marketplace + Citation Network ──────────────────────────────────────────
+
+export function useMarketplace(params?: { ipc?: string; q?: string; limit?: number }) {
+  const key = `/api/v1/marketplace:${JSON.stringify(params ?? {})}`;
+  return useSWR<MarketplaceResponse>(key, () => api.marketplace.list(params), SWR_OPTIONS);
+}
+
+export function useCitationNetwork(patentID: number | null) {
+  return useSWR<CitationNetwork>(
+    patentID ? `/api/v1/citations/network/${patentID}` : null,
+    () => api.citations.network(patentID!),
     SWR_OPTIONS
   );
 }

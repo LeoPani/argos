@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SkeletonKPI, SkeletonList } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { usePatent, useTTContracts, useDisputes, useMaintenance } from "@/lib/hooks";
+import { usePatent, useTTContracts, useDisputes, useMaintenance, useCitationNetwork } from "@/lib/hooks";
+import { CitationNetworkViz } from "@/components/ui/citation-network";
 import { formatDate, formatBRL, ipcLabel } from "@/lib/utils";
 import type { Dispute } from "@/lib/types";
 import { MetricTooltip } from "@/components/ui/metric-tooltip";
@@ -27,6 +28,7 @@ export default function PatentDetailPage({ params }: { params: Promise<{ id: str
   const { data: contractsData } = useTTContracts({ patent_id: String(id), limit: "20" });
   const { data: disputesData }  = useDisputes({ limit: "200" });
   const { data: maintenance }   = useMaintenance(id);
+  const { data: network }       = useCitationNetwork(id);
 
   // Disputes that mention this patent (best-effort: matches kind=patent_infringement and we'd ideally hit /patents/{id}/disputes — for now use title/summary heuristic)
   const relatedDisputes: Dispute[] = (disputesData?.items ?? []).filter(
@@ -112,6 +114,20 @@ export default function PatentDetailPage({ params }: { params: Promise<{ id: str
 
       {/* Maintenance recommendation (Schankerman-Pakes 1986) */}
       {maintenance && <MaintenanceCard m={maintenance} /> }
+
+      {/* Citation Network (Narin 1994) */}
+      {network && network.stats.node_count > 1 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Layers size={14} className="text-purple-400" />
+              Citation Network
+              <Badge variant="muted">{network.stats.node_count} nós</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CitationNetworkViz network={network} />
+        </Card>
+      )}
 
       {/* Abstract */}
       <Card>

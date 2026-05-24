@@ -34,6 +34,7 @@ import type {
   MaintenanceRecommendation, InventorProfile,
   DepartmentHealth, KnowledgeStockResponse,
   RoyaltyForecast, FilingSuggestion,
+  MarketplaceResponse, CitationNetwork,
 } from "./types";
 
 export const api = {
@@ -98,6 +99,22 @@ export const api = {
       }),
   },
 
+  marketplace: {
+    list: (params?: { ipc?: string; q?: string; limit?: number }) => {
+      const p = new URLSearchParams();
+      if (params?.ipc)   p.set("ipc",   params.ipc);
+      if (params?.q)     p.set("q",     params.q);
+      if (params?.limit) p.set("limit", String(params.limit));
+      const qs = p.toString();
+      return req<MarketplaceResponse>(`/api/v1/marketplace${qs ? "?" + qs : ""}`);
+    },
+  },
+
+  citations: {
+    network: (patentID: number) =>
+      req<CitationNetwork>(`/api/v1/citations/network/${patentID}`),
+  },
+
   portfolio: {
     get: () => req<PortfolioResponse>("/api/v1/portfolio"),
   },
@@ -108,7 +125,7 @@ export const api = {
 
   watchlists: {
     list:   () => req<WatchlistListResponse>("/api/v1/watchlists"),
-    create: (body: { label: string; watch_type: WatchType; query?: string }) =>
+    create: (body: { label: string; watch_type: WatchType; query?: string; auto_dispute?: boolean; similarity_threshold?: number }) =>
       req<Watchlist>("/api/v1/watchlists", {
         method: "POST",
         body: JSON.stringify(body),

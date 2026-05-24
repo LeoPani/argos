@@ -568,6 +568,58 @@ export interface MethodologyPayload {
   metrics: MethodologyMetric[];
 }
 
+// ─── TT Marketplace (público) ────────────────────────────────────────────────
+
+export interface MarketplaceListing {
+  patent_id: number;
+  application_number: string;
+  title: string;
+  abstract: string;
+  inventors: string[];
+  filing_year: number;
+  ipc_category: number;
+  ipc_letter: string;
+  ipc_name: string;
+  status: string;
+  non_exclusive_slots_available: number;
+  existing_licensees: number;
+  suggested_license_kind: string;
+}
+
+export interface MarketplaceResponse {
+  items: MarketplaceListing[];
+  count: number;
+  by_ipc_category: Record<string, number>;
+}
+
+// ─── Citation Network (Narin 1994) ───────────────────────────────────────────
+
+export interface CitationNode {
+  id: string;
+  label: string;
+  group: "self" | "forward" | "backward";
+  year?: number;
+  ipc?: string;
+}
+
+export interface CitationLink {
+  source: string;
+  target: string;
+  kind: "forward" | "backward";
+}
+
+export interface CitationNetwork {
+  nodes: CitationNode[];
+  links: CitationLink[];
+  center_node_id: string;
+  stats: {
+    node_count: number;
+    forward_count: number;
+    backward_count: number;
+    avg_year: number;
+  };
+}
+
 // ─── Global search ───────────────────────────────────────────────────────────
 
 export interface SearchHit {
@@ -637,6 +689,8 @@ export interface Watchlist {
   last_check: string | null;
   new_count: number;
   status: WatchStatus;
+  auto_dispute: boolean;
+  similarity_threshold: number;
   created_at: string;
   updated_at: string;
 }
