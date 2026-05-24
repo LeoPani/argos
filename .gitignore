@@ -31,3 +31,9 @@ argos_model/checkpoint-*/
 
 # Docker override local
 docker-compose.override.yml
+
+# Claude Code project instructions (internal only)
+CLAUDE.md
+AGENTS.md
+**/CLAUDE.md
+**/AGENTS.md
