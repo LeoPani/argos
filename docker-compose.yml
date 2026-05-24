@@ -1,10 +1,15 @@
-version: "3.9"
-
 # ── Argos full stack ──────────────────────────────────────────────────────────
-# Usage:
-#   docker compose up             # start everything
-#   docker compose up --build     # rebuild images before start
-#   docker compose logs -f api    # tail a specific service
+# Minimal stack (postgres + migrate + api + frontend):
+#   $ docker compose up --build
+#
+# Include BERT classifier (heavy, ~2GB image):
+#   $ docker compose --profile ai up --build
+#
+# Include INPI worker:
+#   $ docker compose --profile worker up --build
+#
+# Everything:
+#   $ docker compose --profile ai --profile worker up --build
 
 services:
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
@@ -18,7 +23,6 @@ services:
       POSTGRES_DB: argos
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -28,6 +32,7 @@ services:
       retries: 10
 
   # ── Migrations ───────────────────────────────────────────────────────────────
+  # Runs once and exits — applies pending SQL migrations.
   migrate:
     build:
       context: ./backend
@@ -41,23 +46,6 @@ services:
         condition: service_healthy
     restart: on-failure
 
-  # ── FastAPI BERT classifier ──────────────────────────────────────────────────
-  ai:
-    build:
-      context: ./ai-service
-      dockerfile: Dockerfile
-    container_name: argos_ai
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./argos_model:/app/argos_model:ro
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ── Go API ────────────────────────────────────────────────────────────────────
   api:
     build:
@@ -67,7 +55,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://argos:argos_dev@postgres:5432/argos?sslmode=disable
-      AI_BERT_URL: http://ai:8000
+      AI_BERT_URL: ${AI_BERT_URL:-http://ai:8000}
       API_ADDR: :8080
       LOG_FORMAT: json
       LOG_LEVEL: info
@@ -85,32 +73,13 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Go Worker ─────────────────────────────────────────────────────────────────
-  worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: argos_worker
-    command: ["/app/argos-worker"]
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgres://argos:argos_dev@postgres:5432/argos?sslmode=disable
-      AI_BERT_URL: http://ai:8000
-      WORKER_CONCURRENCY: 8
-      WORKER_INPI_DOWNLOAD_DIR: /tmp/argos/rpi
-      LENS_API_TOKEN: ${LENS_API_TOKEN:-}
-      LOG_FORMAT: json
-    depends_on:
-      api:
-        condition: service_healthy
-    volumes:
-      - worker_cache:/tmp/argos
-
   # ── Next.js Frontend ──────────────────────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080
     container_name: argos_frontend
     restart: unless-stopped
     environment:
@@ -121,6 +90,47 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+  # ── FastAPI BERT classifier (opt-in via --profile ai) ────────────────────────
+  ai:
+    profiles: [ai]
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: argos_ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai-service/argos_model:/app/argos_model:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # ── Go Worker — INPI ingestion (opt-in via --profile worker) ─────────────────
+  worker:
+    profiles: [worker]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: argos_worker
+    command: ["/app/argos-worker"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://argos:argos_dev@postgres:5432/argos?sslmode=disable
+      AI_BERT_URL: ${AI_BERT_URL:-http://ai:8000}
+      WORKER_CONCURRENCY: 8
+      WORKER_INPI_DOWNLOAD_DIR: /tmp/argos/rpi
+      LENS_API_TOKEN: ${LENS_API_TOKEN:-}
+      LOG_FORMAT: json
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - worker_cache:/tmp/argos
 
 volumes:
   postgres_data:

@@ -1,0 +1,36 @@
+# Netlify deploy config for Argos frontend.
+#
+# Netlify supports Next.js via the official @netlify/plugin-nextjs adapter,
+# which auto-detects the App Router and provisions Functions for API routes
+# (/api/chat and /api/prior-art). No code changes needed compared to Vercel.
+
+[build]
+  base       = "frontend"
+  command    = "npm run build"
+  publish    = ".next"
+
+# Auto-detection works but pinning the plugin is more reliable.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+[build.environment]
+  # Build-time variable baked into the bundle.
+  NEXT_PUBLIC_API_URL = "https://argos-api.fly.dev"
+  # Node 20+ is required by Next.js 15.
+  NODE_VERSION = "22"
+
+# Runtime / server-side secret (used by /api/chat Netlify Function).
+# Set via: netlify env:set ANTHROPIC_API_KEY sk-ant-...
+
+# Optional: pin the function deploy region (closer to Brazilian users).
+[functions]
+  node_bundler = "esbuild"
+  # Netlify Functions default to us-east-1. Use Edge Functions for closer-to-user
+  # routing — see edge_functions block below.
+
+# Redirect bare domain → www (or vice-versa). Adjust as needed.
+[[redirects]]
+  from = "/"
+  to   = "/dashboard"
+  status = 307
+  force  = false

@@ -40,8 +40,11 @@ CREATE INDEX IF NOT EXISTS idx_patents_rpi_issue
 CREATE INDEX IF NOT EXISTS idx_patents_status
     ON patents (status);
 
--- Trigram indexes for ILIKE search on title/abstract (pg_trgm is created
--- by scripts/init-db.sql on first container boot).
+-- Ensure pg_trgm is available — idempotent (no-op if já habilitado).
+-- Necessário para trigram indexes abaixo.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Trigram indexes for ILIKE search on title/abstract.
 CREATE INDEX IF NOT EXISTS idx_patents_title_trgm
     ON patents USING gin (title gin_trgm_ops);
 

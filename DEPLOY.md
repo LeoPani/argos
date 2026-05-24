@@ -1,9 +1,78 @@
-# Argos — Deploy em produção
+# Argos — Deploy
 
-Guia completo para subir Argos em ambiente de produção usando free-tier
-de serviços confiáveis. Custo total estimado: **R$ 0 / mês** para começar.
+Guia para rodar Argos em **(0) deploy local via Docker Compose** e em **(1+) produção** com free-tier
+de serviços confiáveis. Custo de produção estimado: **R$ 0 / mês** para começar.
 
-## Arquitetura sugerida
+---
+
+## 0. Deploy LOCAL — Docker Compose (1 comando)
+
+Tudo numa única stack — útil pra demos offline, banca presencial, ou
+testar a configuração de produção sem subir nada na nuvem.
+
+### Pré-requisitos
+- Docker Desktop instalado e rodando
+- ~3 GB de disco livre (imagens + Postgres data)
+
+### Subir
+
+```bash
+cd ~/Projetos/argos
+
+# Stack mínimo: postgres + migrate + api + frontend
+docker compose up --build -d
+
+# Stack completo (inclui BERT FastAPI ~2GB):
+docker compose --profile ai up --build -d
+
+# Tudo (mais o worker INPI):
+docker compose --profile ai --profile worker up --build -d
+```
+
+A primeira build leva 3-5 min. Builds subsequentes usam cache (~30s).
+
+### URLs locais
+
+| Serviço | URL |
+|---|---|
+| Frontend Next.js | http://localhost:3000 |
+| API Go | http://localhost:8080/health |
+| Postgres | `localhost:5432` (user: `argos` / pass: `argos_dev`) |
+| BERT (se ativo) | http://localhost:8000/health |
+
+### Popular com dados de demo (~150 registros)
+
+```bash
+docker compose exec api /app/argos-seed
+```
+
+### Logs
+
+```bash
+docker compose logs -f                # tudo
+docker compose logs -f api            # só a API
+docker compose logs --tail=50 frontend
+```
+
+### Parar
+
+```bash
+docker compose down                   # mantém volumes (Postgres data)
+docker compose down -v                # apaga tudo, fresh start
+```
+
+### Variáveis opcionais
+
+Crie `.env` na raiz do repo (não commite):
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...          # libera o /chat
+LENS_API_TOKEN=...                    # libera enrichment real de citações
+```
+
+---
+
+## 1. Arquitetura de produção sugerida
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -94,6 +163,44 @@ ociosa e cold-starts em ~1s no primeiro request. Para um demo isso é R$ 0.
    - `NEXT_PUBLIC_API_URL` → `https://argos-api.fly.dev`
    - `ANTHROPIC_API_KEY` → `sk-ant-...` (para o chat funcionar)
 5. **Deploy** — leva ~1 min. URL: `https://argos.vercel.app`
+
+### 3.b. Alternativa — Netlify (5 min)
+
+Netlify hospeda Next.js via `@netlify/plugin-nextjs` (oficial). Suporta tudo:
+- App Router (Next 13+)
+- Server Components
+- API routes (viram **Netlify Functions** automaticamente)
+
+**Trade-offs vs Vercel:**
+
+| | Vercel | Netlify |
+|---|---|---|
+| Next.js support | Nativo, otimizado | Via plugin oficial — funciona, mas com 1 nível a mais de indireção |
+| Cold start de API routes | ~50ms (Edge) | ~200-500ms (Functions us-east-1) |
+| Region BR | `gru1` | só Edge Functions têm routing global |
+| Free tier (bandwidth) | 100 GB | 100 GB |
+| Free tier (build min) | 6000 min/mês | 300 min/mês |
+
+**Para o Argos, Vercel é mais suave** (cold start mais baixo no chat). Netlify é viável.
+
+**Passos:**
+
+1. https://app.netlify.com → **Add new site → Import an existing project**
+2. Conecte seu GitHub e selecione o repositório
+3. Build settings serão lidas do `frontend/netlify.toml` automaticamente:
+   - Base directory: `frontend`
+   - Build command: `npm run build`
+   - Publish directory: `.next`
+   - Plugin: `@netlify/plugin-nextjs`
+4. **Site settings → Environment variables**:
+   - `NEXT_PUBLIC_API_URL` → `https://argos-api.fly.dev`
+   - `ANTHROPIC_API_KEY` → `sk-ant-...`
+5. **Deploy** — leva ~2 min. URL: `https://argos-app.netlify.app`
+
+**Custom domain Netlify:**
+1. Site settings → Domain management → Add domain
+2. DNS: A record → `75.2.60.5` (load balancer Netlify) ou
+   CNAME → `<site>.netlify.app`
 
 ---
 
