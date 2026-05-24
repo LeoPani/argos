@@ -102,6 +102,11 @@ func run() error {
 
 	portfolioSvc := service.NewPortfolioService(patentRepo, trademarkRepo, ufopRepo)
 
+	statsSvc := service.NewStatsService(db)
+
+	watchlistRepo := pg.NewWatchlistRepo(db)
+	watchlistSvc := service.NewWatchlistService(watchlistRepo, patentRepo, trademarkRepo)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -113,6 +118,8 @@ func run() error {
 		PriorArtService:  priorArtSvc,
 		UFOPService:      ufopSvc,
 		PortfolioService: portfolioSvc,
+		StatsService:     statsSvc,
+		WatchlistService: watchlistSvc,
 	})
 
 	// --- HTTP server ---

@@ -4,99 +4,130 @@ import { useState } from "react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { mockAlerts } from "@/lib/mock-data";
-import { formatDate } from "@/lib/utils";
-import type { Alert } from "@/lib/types";
-import { Bell, Plus, Eye, Building2, Tag, FileText, Search } from "lucide-react";
+import { useWatchlists } from "@/lib/hooks";
+import { api } from "@/lib/api";
+import type { Watchlist, WatchType } from "@/lib/types";
+import {
+  Bell, Plus, Eye, Building2, Tag, FileText, Search,
+  Trash2, RefreshCw, Zap,
+} from "lucide-react";
 
-const typeIcon: Record<Alert["type"], React.ReactNode> = {
-  term: <Search size={14} className="text-indigo-400" />,
-  brand: <Tag size={14} className="text-orange-400" />,
+const typeIcon: Record<WatchType, React.ReactNode> = {
+  term:    <Search    size={14} className="text-indigo-400" />,
+  brand:   <Tag       size={14} className="text-orange-400" />,
   company: <Building2 size={14} className="text-blue-400" />,
-  patent: <FileText size={14} className="text-purple-400" />,
+  patent:  <FileText  size={14} className="text-purple-400" />,
 };
 
-const typeLabel: Record<Alert["type"], string> = {
-  term: "Termo de busca",
-  brand: "Marca monitorada",
+const typeLabel: Record<WatchType, string> = {
+  term:    "Termo de busca",
+  brand:   "Marca monitorada",
   company: "Empresa",
-  patent: "Patente",
+  patent:  "Número de patente",
 };
 
 export default function AlertasPage() {
-  const [alerts, setAlerts] = useState(mockAlerts);
+  const { data, error, mutate, isLoading } = useWatchlists();
+  const [newLabel, setNewLabel] = useState("");
+  const [newType,  setNewType]  = useState<WatchType>("term");
+  const [newQuery, setNewQuery] = useState("");
+  const [busy, setBusy]         = useState<number | "create" | "all" | null>(null);
+
+  const isLive   = !error && !!data;
+  const items: Watchlist[] = data?.items ?? [];
+
+  const totalNew   = items.reduce((s, w) => s + w.new_count, 0);
+  const alertCount = items.filter(w => w.status === "alert").length;
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newLabel.trim()) return;
+    setBusy("create");
+    try {
+      await api.watchlists.create({
+        label: newLabel.trim(),
+        watch_type: newType,
+        query: newQuery.trim() || newLabel.trim(),
+      });
+      setNewLabel(""); setNewQuery(""); setNewType("term");
+      mutate();
+    } catch (err) {
+      console.error(err);
+    } finally { setBusy(null); }
+  }
+
+  async function handleDelete(id: number) {
+    setBusy(id);
+    try {
+      await api.watchlists.delete(id);
+      mutate();
+    } finally { setBusy(null); }
+  }
+
+  async function handleCheck(id: number) {
+    setBusy(id);
+    try {
+      await api.watchlists.check(id);
+      mutate();
+    } finally { setBusy(null); }
+  }
+
+  async function handleCheckAll() {
+    setBusy("all");
+    try {
+      await api.watchlists.checkAll();
+      mutate();
+    } finally { setBusy(null); }
+  }
 
   return (
     <div className="p-8 space-y-6">
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Bell size={22} />
-            Alertas & Watchlist
+            Alertas &amp; Watchlist
           </h1>
           <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
             Monitore concorrentes, termos-chave, marcas e patentes em tempo real
           </p>
         </div>
-        <Button size="sm">
-          <Plus size={14} />
-          Novo alerta
-        </Button>
+        <div className="flex items-center gap-2">
+          {isLive ? (
+            <span className="text-xs text-emerald-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+              persistido no banco
+            </span>
+          ) : (
+            <span className="text-xs text-amber-400">backend offline</span>
+          )}
+          <Button variant="secondary" size="sm"
+            onClick={handleCheckAll}
+            disabled={busy === "all" || items.length === 0}>
+            {busy === "all"
+              ? <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Verificando…</>
+              : <><Zap size={12} /> Verificar todos</>}
+          </Button>
+        </div>
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4">
         <Card>
           <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Total monitorado</p>
-          <p className="text-2xl font-bold text-white">{alerts.length}</p>
+          <p className="text-2xl font-bold text-white">{items.length}</p>
         </Card>
         <Card>
           <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Com novidades</p>
-          <p className="text-2xl font-bold text-amber-400">{alerts.filter(a => a.status === "alert").length}</p>
+          <p className="text-2xl font-bold" style={{ color: alertCount > 0 ? "#fbbf24" : "#fff" }}>
+            {alertCount}
+          </p>
         </Card>
         <Card>
           <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Novos itens encontrados</p>
-          <p className="text-2xl font-bold text-white">{alerts.reduce((s, a) => s + a.new_count, 0)}</p>
+          <p className="text-2xl font-bold text-white">{totalNew}</p>
         </Card>
-      </div>
-
-      {/* Alert list */}
-      <div className="space-y-3">
-        {alerts.map(alert => (
-          <Card key={alert.id}
-            style={{ borderColor: alert.status === "alert" ? "#f59e0b30" : "var(--border)" }}>
-            <div className="flex items-center gap-4">
-              <div className="p-2 rounded-lg shrink-0" style={{ background: "var(--surface-2)" }}>
-                {typeIcon[alert.type]}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <Badge variant="muted">{typeLabel[alert.type]}</Badge>
-                  {alert.status === "alert" && (
-                    <Badge variant="warning">🔔 {alert.new_count} novos</Badge>
-                  )}
-                  {alert.status === "ok" && <Badge variant="success">✓ Sem novidades</Badge>}
-                </div>
-                <p className="text-sm font-medium text-white">{alert.label}</p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-                  Última verificação: {new Date(alert.last_check).toLocaleString("pt-BR")}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                {alert.status === "alert" && (
-                  <Button size="sm">
-                    <Eye size={12} />
-                    Ver novidades
-                  </Button>
-                )}
-                <Button variant="ghost" size="sm"
-                  onClick={() => setAlerts(prev => prev.filter(a => a.id !== alert.id))}>
-                  Remover
-                </Button>
-              </div>
-            </div>
-          </Card>
-        ))}
       </div>
 
       {/* Add new alert */}
@@ -104,31 +135,122 @@ export default function AlertasPage() {
         <CardHeader>
           <CardTitle>Adicionar novo monitoramento</CardTitle>
         </CardHeader>
-        <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleCreate} className="space-y-3">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                Rótulo (mostrado na lista)
+              </label>
+              <input
+                value={newLabel}
+                onChange={e => setNewLabel(e.target.value)}
+                placeholder="ex: Petrobras, Sistema IA, BR1020230..."
+                required
+                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none"
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}
+              />
+            </div>
+            <div>
+              <label className="text-xs mb-1.5 block" style={{ color: "var(--text-muted)" }}>Tipo</label>
+              <select value={newType} onChange={e => setNewType(e.target.value as WatchType)}
+                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none"
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}>
+                <option value="term">Termo de busca</option>
+                <option value="brand">Marca</option>
+                <option value="company">Empresa</option>
+                <option value="patent">Número de patente</option>
+              </select>
+            </div>
+          </div>
           <div>
-            <label className="text-xs mb-1.5 block" style={{ color: "var(--text-muted)" }}>O que monitorar</label>
+            <label className="text-xs mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+              Query (opcional — usa o rótulo se vazio)
+            </label>
             <input
-              placeholder="Nome da empresa, termo, marca..."
+              value={newQuery}
+              onChange={e => setNewQuery(e.target.value)}
+              placeholder="palavra-chave para o ILIKE no banco"
               className="w-full px-4 py-2.5 rounded-lg text-sm outline-none"
               style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}
             />
           </div>
-          <div>
-            <label className="text-xs mb-1.5 block" style={{ color: "var(--text-muted)" }}>Tipo</label>
-            <select className="w-full px-4 py-2.5 rounded-lg text-sm outline-none"
-              style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "white" }}>
-              <option value="term">Termo de busca</option>
-              <option value="brand">Marca</option>
-              <option value="company">Empresa</option>
-              <option value="patent">Número de patente</option>
-            </select>
-          </div>
-        </div>
-        <Button className="mt-4" size="sm">
-          <Plus size={14} />
-          Criar alerta
-        </Button>
+          <Button type="submit" size="sm" disabled={busy === "create" || !newLabel.trim()}>
+            {busy === "create"
+              ? <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Criando…</>
+              : <><Plus size={14} /> Criar alerta</>}
+          </Button>
+        </form>
       </Card>
+
+      {/* Alert list */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-white">Monitoramentos ativos</h2>
+
+        {isLoading && items.length === 0 && (
+          <Card><p className="text-sm text-center py-4" style={{ color: "var(--text-muted)" }}>Carregando…</p></Card>
+        )}
+
+        {!isLoading && items.length === 0 && (
+          <Card>
+            <p className="text-sm text-center py-4" style={{ color: "var(--text-muted)" }}>
+              Nenhum monitoramento ainda. Crie o primeiro acima.
+            </p>
+          </Card>
+        )}
+
+        {items.map(alert => (
+          <Card key={alert.id}
+            style={{ borderColor: alert.status === "alert" ? "#f59e0b30" : "var(--border)" }}>
+            <div className="flex items-center gap-4">
+              <div className="p-2 rounded-lg shrink-0" style={{ background: "var(--surface-2)" }}>
+                {typeIcon[alert.watch_type]}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <Badge variant="muted">{typeLabel[alert.watch_type]}</Badge>
+                  {alert.status === "alert" && (
+                    <Badge variant="warning">🔔 {alert.new_count} novos</Badge>
+                  )}
+                  {alert.status === "ok" && (
+                    <Badge variant="success">✓ Sem novidades</Badge>
+                  )}
+                  {alert.query && alert.query !== alert.label && (
+                    <span className="font-mono text-xs text-indigo-400">"{alert.query}"</span>
+                  )}
+                </div>
+                <p className="text-sm font-medium text-white">{alert.label}</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  {alert.last_check
+                    ? `Última verificação: ${new Date(alert.last_check).toLocaleString("pt-BR")}`
+                    : "Nunca verificado"}
+                </p>
+              </div>
+              <div className="flex gap-2 items-center">
+                <Button variant="ghost" size="sm"
+                  onClick={() => handleCheck(alert.id)}
+                  disabled={busy === alert.id}>
+                  {busy === alert.id
+                    ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <RefreshCw size={12} />}
+                  Verificar
+                </Button>
+                {alert.status === "alert" && (
+                  <Button size="sm">
+                    <Eye size={12} />
+                    Ver matches
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm"
+                  onClick={() => handleDelete(alert.id)}
+                  disabled={busy === alert.id}
+                  style={{ color: "#f87171" }}>
+                  <Trash2 size={12} />
+                </Button>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

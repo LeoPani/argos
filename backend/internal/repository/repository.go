@@ -57,3 +57,12 @@ type UFOPRepository interface {
 	Count(ctx context.Context, f domain.UFOPFilter) (int64, error)
 	UpdateStatus(ctx context.Context, id int64, status domain.UFOPOpportunityStatus) error
 }
+
+// WatchlistRepository is the persistence contract for monitoring alerts.
+type WatchlistRepository interface {
+	Insert(ctx context.Context, w *domain.Watchlist) error
+	GetByID(ctx context.Context, id int64) (*domain.Watchlist, error)
+	List(ctx context.Context) ([]domain.Watchlist, error)
+	Delete(ctx context.Context, id int64) error
+	UpdateCheck(ctx context.Context, id int64, newCount int, status domain.WatchStatus) error
+}

@@ -198,15 +198,82 @@ export interface RoyaltyEntry {
   status: "received" | "pending" | "upcoming";
 }
 
-// ─── Alerts ──────────────────────────────────────────────────────────────────
+// ─── Alerts / Watchlists ─────────────────────────────────────────────────────
 
+export type WatchType = "term" | "brand" | "company" | "patent";
+export type WatchStatus = "ok" | "alert";
+
+/** Legacy frontend-only Alert type (still used by mock data). */
 export interface Alert {
   id: string;
-  type: "term" | "brand" | "company" | "patent";
+  type: WatchType;
   label: string;
   last_check: string;
   new_count: number;
-  status: "ok" | "alert";
+  status: WatchStatus;
+}
+
+/** Mirrors domain.Watchlist from the Go backend. */
+export interface Watchlist {
+  id: number;
+  label: string;
+  watch_type: WatchType;
+  query: string;
+  last_check: string | null;
+  new_count: number;
+  status: WatchStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WatchlistListResponse {
+  items: Watchlist[];
+  count: number;
+}
+
+// ─── Dashboard / Stats ───────────────────────────────────────────────────────
+
+export interface StatsCounts {
+  patents: number;
+  patents_classified: number;
+  trademarks: number;
+  trademarks_active: number;
+  disputes: number;
+  disputes_open: number;
+  ufop_opportunities: number;
+  ufop_high: number;
+}
+
+export interface IPCSlice {
+  category: number;
+  letter: string;
+  name: string;
+  count: number;
+  pct: number;
+}
+
+export interface StatusSlice {
+  status: string;
+  count: number;
+  pct: number;
+}
+
+export interface ActivityItem {
+  kind: "patent" | "trademark" | "dispute" | "ufop";
+  id: number;
+  reference: string;
+  title: string;
+  status: string;
+  created_at: string;
+}
+
+export interface StatsResponse {
+  counts: StatsCounts;
+  ipc_distribution: IPCSlice[];
+  patent_statuses: StatusSlice[];
+  trademark_statuses: StatusSlice[];
+  recent_activity: ActivityItem[];
+  generated_at: string;
 }
 
 // ─── Risk / Anterioridade ────────────────────────────────────────────────────

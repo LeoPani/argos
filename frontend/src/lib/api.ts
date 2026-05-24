@@ -17,7 +17,13 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ─── Patents ──────────────────────────────────────────────────────────────────
 
-import type { Patent, PatentListResponse, UFOPListResponse, UFOPOpportunity, UFOPStatus, PortfolioResponse } from "./types";
+import type {
+  Patent, PatentListResponse,
+  UFOPListResponse, UFOPOpportunity, UFOPStatus,
+  PortfolioResponse,
+  StatsResponse,
+  WatchType, Watchlist, WatchlistListResponse,
+} from "./types";
 
 export const api = {
   patents: {
@@ -39,6 +45,27 @@ export const api = {
 
   portfolio: {
     get: () => req<PortfolioResponse>("/api/v1/portfolio"),
+  },
+
+  stats: {
+    get: () => req<StatsResponse>("/api/v1/stats"),
+  },
+
+  watchlists: {
+    list:   () => req<WatchlistListResponse>("/api/v1/watchlists"),
+    create: (body: { label: string; watch_type: WatchType; query?: string }) =>
+      req<Watchlist>("/api/v1/watchlists", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: number) =>
+      fetch(`${BASE}/api/v1/watchlists/${id}`, { method: "DELETE" }).then(r => {
+        if (!r.ok) throw new Error(`API ${r.status}`);
+      }),
+    check: (id: number) =>
+      req<Watchlist>(`/api/v1/watchlists/${id}/check`, { method: "POST" }),
+    checkAll: () =>
+      req<{ checked: number }>("/api/v1/watchlists/check-all", { method: "POST" }),
   },
 
   ufop: {

@@ -16,6 +16,8 @@ type Deps struct {
 	PriorArtService  *service.PriorArtService
 	UFOPService      *service.UFOPService
 	PortfolioService *service.PortfolioService
+	StatsService     *service.StatsService
+	WatchlistService *service.WatchlistService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -74,6 +76,22 @@ func NewRouter(deps Deps) http.Handler {
 	if deps.PortfolioService != nil {
 		portfolio := NewPortfolioHandler(deps.PortfolioService)
 		mux.HandleFunc("GET /api/v1/portfolio", portfolio.Get)
+	}
+
+	// ── Stats / Dashboard BI ──────────────────────────────────────────────
+	if deps.StatsService != nil {
+		stats := NewStatsHandler(deps.StatsService)
+		mux.HandleFunc("GET /api/v1/stats", stats.Get)
+	}
+
+	// ── Watchlists / Alerts ───────────────────────────────────────────────
+	if deps.WatchlistService != nil {
+		watch := NewWatchlistHandler(deps.WatchlistService)
+		mux.HandleFunc("GET /api/v1/watchlists", watch.List)
+		mux.HandleFunc("POST /api/v1/watchlists", watch.Create)
+		mux.HandleFunc("DELETE /api/v1/watchlists/{id}", watch.Delete)
+		mux.HandleFunc("POST /api/v1/watchlists/{id}/check", watch.Check)
+		mux.HandleFunc("POST /api/v1/watchlists/check-all", watch.CheckAll)
 	}
 
 	// ── UFOP Intelligence (Phase E) ───────────────────────────────────────

@@ -5,7 +5,11 @@
 
 import useSWR from "swr";
 import { api } from "./api";
-import type { Patent, PatentListResponse, UFOPListResponse, PortfolioResponse } from "./types";
+import type {
+  Patent, PatentListResponse,
+  UFOPListResponse, PortfolioResponse,
+  StatsResponse, WatchlistListResponse,
+} from "./types";
 
 const SWR_OPTIONS = {
   refreshInterval: 30_000,
@@ -50,6 +54,26 @@ export function usePortfolio() {
   return useSWR<PortfolioResponse>(
     "/api/v1/portfolio",
     () => api.portfolio.get(),
+    SWR_OPTIONS
+  );
+}
+
+// ─── Stats / Dashboard ───────────────────────────────────────────────────────
+
+export function useStats() {
+  return useSWR<StatsResponse>(
+    "/api/v1/stats",
+    () => api.stats.get(),
+    SWR_OPTIONS
+  );
+}
+
+// ─── Watchlists / Alerts ─────────────────────────────────────────────────────
+
+export function useWatchlists() {
+  return useSWR<WatchlistListResponse>(
+    "/api/v1/watchlists",
+    () => api.watchlists.list(),
     SWR_OPTIONS
   );
 }
