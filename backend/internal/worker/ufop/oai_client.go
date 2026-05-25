@@ -81,9 +81,33 @@ type oaiRecord struct {
 }
 
 type oaiHeader struct {
-	Identifier string `xml:"identifier"`
-	Datestamp  string `xml:"datestamp"`
-	Status     string `xml:"status,attr"`
+	Identifier string   `xml:"identifier"`
+	Datestamp  string   `xml:"datestamp"`
+	Status     string   `xml:"status,attr"`
+	SetSpec    []string `xml:"setSpec"` // identifica community/coleção DSpace
+}
+
+// departmentBySet maps DSpace community specs to legible department names.
+// Permite filtrar oportunidades por departamento real (em vez de derivar
+// de affiliations, que vêm sempre vazias no Dublin Core puro).
+var departmentBySet = map[string]string{
+	"com_123456789_656":   "Direito (graduação)",
+	"com_123456789_653":   "Direito · Escola EDTM",
+	"com_123456789_10890": "Direito · PPG (pós)",
+	"com_123456789_510":   "Engenharia de Minas (graduação)",
+	"com_123456789_6":     "Escola de Minas",
+	"com_123456789_576":   "Engenharia Mineral · PPGEM (pós)",
+	"com_123456789_8":     "Geologia (DEGEO)",
+}
+
+// resolveDepartment retorna o primeiro setSpec mapeado, ou genérico UFOP.
+func resolveDepartment(setSpecs []string) string {
+	for _, s := range setSpecs {
+		if dept, ok := departmentBySet[s]; ok {
+			return dept
+		}
+	}
+	return "UFOP — outros"
 }
 
 type oaiMetadata struct {
@@ -327,6 +351,9 @@ func mapOAIToDomain(rec oaiRecord) *domain.Publication {
 		}
 	}
 
+	// Departamento real vem do setSpec (community DSpace).
+	dept := resolveDepartment(rec.Header.SetSpec)
+
 	return &domain.Publication{
 		Source:        domain.PublicationSourceManual, // using "manual" until ufop_oai is in constraint
 		ExternalID:    rec.Header.Identifier,
@@ -334,7 +361,7 @@ func mapOAIToDomain(rec oaiRecord) *domain.Publication {
 		Title:         title,
 		Abstract:      abstract,
 		Authors:       authors,
-		Affiliations:  []string{"Universidade Federal de Ouro Preto"},
+		Affiliations:  []string{dept, "Universidade Federal de Ouro Preto"},
 		Kind:          kind,
 		Journal:       "RI-UFOP",
 		PublishedDate: pubDate,

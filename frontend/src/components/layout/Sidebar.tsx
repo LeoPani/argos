@@ -29,7 +29,7 @@ const nav = [
   { href: "/portfolio", icon: FolderOpen, label: "Portfolio de PI" },
   { href: "/arbitragem", icon: Scale, label: "Arbitragem" },
   { href: "/ufop", icon: GraduationCap, label: "UFOP Intelligence" },
-  { href: "/pool", icon: Landmark, label: "Pool & TT" },
+  { href: "/pool", icon: Landmark, label: "Pool de Patentes" },
   { href: "/alertas", icon: Bell, label: "Alertas" },
   { href: "/chat", icon: MessageSquare, label: "Chat de PI" },
 ];

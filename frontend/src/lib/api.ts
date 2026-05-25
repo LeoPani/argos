@@ -35,7 +35,7 @@ import type {
   DepartmentHealth, KnowledgeStockResponse,
   RoyaltyForecast, FilingSuggestion,
   MarketplaceResponse, CitationNetwork,
-  CalendarResponse,
+  CalendarResponse, TTTemplate,
 } from "./types";
 
 export const api = {
@@ -124,6 +124,11 @@ export const api = {
       const qs = p.toString();
       return req<CalendarResponse>(`/api/v1/calendar${qs ? "?" + qs : ""}`);
     },
+  },
+
+  ttTemplate: {
+    fromUFOP: (oppID: number) =>
+      req<TTTemplate>(`/api/v1/tt-template/from-ufop/${oppID}`),
   },
 
   portfolio: {

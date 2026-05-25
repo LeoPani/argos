@@ -29,6 +29,7 @@ type Deps struct {
 	MarketplaceService *service.MarketplaceService
 	CitationNetworkService *service.CitationNetworkService
 	CalendarService        *service.CalendarService
+	TTTemplateService      *service.TTTemplateService
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -156,6 +157,12 @@ func NewRouter(deps Deps) http.Handler {
 	if deps.CalendarService != nil {
 		cal := NewCalendarHandler(deps.CalendarService)
 		mux.HandleFunc("GET /api/v1/calendar", cal.Get)
+	}
+
+	// ── TT contract template (from UFOP opportunity) ──────────────────────
+	if deps.TTTemplateService != nil {
+		tplH := NewTTTemplateHandler(deps.TTTemplateService)
+		mux.HandleFunc("GET /api/v1/tt-template/from-ufop/{oppID}", tplH.FromUFOP)
 	}
 
 	// ── Smart Filing Assistant ────────────────────────────────────────────

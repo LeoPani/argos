@@ -135,6 +135,8 @@ func run() error {
 
 	calendarSvc := service.NewCalendarService(db)
 
+	ttTemplateSvc := service.NewTTTemplateService(db)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -159,6 +161,7 @@ func run() error {
 		MarketplaceService:     marketplaceSvc,
 		CitationNetworkService: citationNetSvc,
 		CalendarService:        calendarSvc,
+		TTTemplateService:      ttTemplateSvc,
 	})
 
 	// --- HTTP server ---

@@ -65,6 +65,9 @@ test: ## Run all tests
 vet: ## Run go vet
 	go vet ./...
 
+ingest-ufop-patents: ## Pesca patentes UFOP REAIS do Google Patents
+	go run ./cmd/ingest-ufop-patents 30
+
 fmt: ## Format all code
 	gofmt -w .
 

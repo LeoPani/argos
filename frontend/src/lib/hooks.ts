@@ -19,7 +19,7 @@ import type {
   DepartmentHealth, KnowledgeStockResponse,
   RoyaltyForecast,
   MarketplaceResponse, CitationNetwork,
-  CalendarResponse,
+  CalendarResponse, TTTemplate,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -243,6 +243,14 @@ export function useCitationNetwork(patentID: number | null) {
 export function useCalendar(from?: string, to?: string) {
   const key = `/api/v1/calendar:${from ?? ""}:${to ?? ""}`;
   return useSWR<CalendarResponse>(key, () => api.calendar.get(from, to), SWR_OPTIONS);
+}
+
+export function useTTTemplateFromUFOP(oppID: number | null) {
+  return useSWR<TTTemplate>(
+    oppID ? `/api/v1/tt-template/from-ufop/${oppID}` : null,
+    () => api.ttTemplate.fromUFOP(oppID!),
+    { revalidateOnFocus: false }
+  );
 }
 
 // ─── Watchlists / Alerts ─────────────────────────────────────────────────────

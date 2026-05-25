@@ -620,6 +620,39 @@ export interface CitationNetwork {
   };
 }
 
+// ─── TT contract template (geração assistida) ────────────────────────────────
+
+export interface RelatedPatentRef {
+  id: number;
+  application_number: string;
+  title: string;
+  status: string;
+}
+
+export interface TTTemplate {
+  opportunity_id: number;
+  title: string;
+  abstract: string;
+  department: string;
+  ipc_suggestion: string;
+  ipc_letter: string;
+  authors: string[];
+  source_url: string;
+  suggested_royalty_pct: number;
+  suggested_floor_brl: number;
+  suggested_upfront_brl: number;
+  suggested_inventor_share_pct: number;
+  suggested_license_kind: string;
+  suggested_territory: string;
+  suggested_duration_years: number;
+  rationale: string[];
+  related_patents: RelatedPatentRef[];
+  contract_markdown: string;
+  suggested_contract_number: string;
+  generated_at: string;
+  methodology: string;
+}
+
 // ─── Calendar NIT-UFOP ───────────────────────────────────────────────────────
 
 export interface CalendarEvent {

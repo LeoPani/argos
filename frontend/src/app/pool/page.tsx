@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,36 +49,25 @@ const poolKindLabel: Record<PoolKind, string> = {
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export default function PoolPage() {
-  const [tab, setTab] = useState<Tab>("contracts");
-
   return (
     <div className="p-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Briefcase size={22} />
-          Pool de Patentes &amp; Contratos TT
-        </h1>
-        <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-          Gestão de contratos de transferência tecnológica e pools de patentes do NIT-UFOP
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <Layers size={22} />
+            Pool de Patentes
+          </h1>
+          <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+            Agrupamento de patentes UFOP em pools para licenciamento conjunto.
+            Contratos TT individuais são gerados via{" "}
+            <Link href="/ufop" className="text-indigo-400 hover:text-indigo-300">UFOP Intelligence</Link>
+            {" "}ou{" "}
+            <Link href="/portfolio" className="text-indigo-400 hover:text-indigo-300">Portfolio</Link>.
+          </p>
+        </div>
       </div>
 
-      <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ background: "var(--surface)" }}>
-        {(["contracts", "pools"] as Tab[]).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className="px-4 py-2 rounded-md text-sm transition-all"
-            style={{
-              background: tab === t ? "var(--accent)" : "transparent",
-              color: tab === t ? "white" : "var(--text-muted)",
-            }}>
-            {t === "contracts"
-              ? <><FileText size={13} className="inline mr-1.5" /> Contratos TT</>
-              : <><Layers size={13} className="inline mr-1.5" /> Pools de Patentes</>}
-          </button>
-        ))}
-      </div>
-
-      {tab === "contracts" ? <ContractsTab /> : <PoolsTab />}
+      <PoolsTab />
     </div>
   );
 }
