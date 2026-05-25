@@ -96,17 +96,28 @@ func run() error {
 	switch target {
 	case "direito":
 		sets = append(sets,
-			struct{ name, spec string }{"DEDIR — Departamento de Direito",       ufop.UFOPSetDepDireito},
-			struct{ name, spec string }{"PPG Direito",                            ufop.UFOPSetPPGDireito},
+			struct{ name, spec string }{"DEDIR — Departamento de Direito (graduação)", ufop.UFOPSetDepDireito},
+			struct{ name, spec string }{"EDTM — Escola de Direito, Turismo, Museologia", ufop.UFOPSetEscolaDireito},
+			struct{ name, spec string }{"PPG Direito — pós-graduação stricto sensu",     ufop.UFOPSetPPGDireito},
 		)
 	case "minas":
 		sets = append(sets,
-			struct{ name, spec string }{"DEMIN — Engenharia de Minas",            ufop.UFOPSetDepEngMinas},
+			struct{ name, spec string }{"DEMIN — Engenharia de Minas (graduação)",       ufop.UFOPSetDepEngMinas},
+			struct{ name, spec string }{"EM — Escola de Minas (umbrella)",                ufop.UFOPSetEscolaMinas},
+			struct{ name, spec string }{"PPGEM — PPG em Engenharia Mineral",              ufop.UFOPSetPPGEngMineral},
+			struct{ name, spec string }{"DEGEO — Geologia (complementar)",                ufop.UFOPSetDepGeologia},
 		)
 	case "all", "":
 		sets = append(sets,
-			struct{ name, spec string }{"DEDIR — Departamento de Direito",       ufop.UFOPSetDepDireito},
-			struct{ name, spec string }{"DEMIN — Engenharia de Minas",            ufop.UFOPSetDepEngMinas},
+			// Direito
+			struct{ name, spec string }{"DEDIR — Direito (grad)",                  ufop.UFOPSetDepDireito},
+			struct{ name, spec string }{"EDTM — Escola de Direito (umbrella)",     ufop.UFOPSetEscolaDireito},
+			struct{ name, spec string }{"PPG Direito",                              ufop.UFOPSetPPGDireito},
+			// Minas
+			struct{ name, spec string }{"DEMIN — Eng. Minas (grad)",                ufop.UFOPSetDepEngMinas},
+			struct{ name, spec string }{"EM — Escola de Minas (umbrella)",          ufop.UFOPSetEscolaMinas},
+			struct{ name, spec string }{"PPGEM — PPG Engenharia Mineral",           ufop.UFOPSetPPGEngMineral},
+			struct{ name, spec string }{"DEGEO — Geologia",                          ufop.UFOPSetDepGeologia},
 		)
 	default:
 		return fmt.Errorf("target desconhecido: %q (use direito|minas|all)", target)

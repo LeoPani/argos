@@ -26,14 +26,19 @@ const (
 	oaiSource   = domain.PublicationSource("ufop_oai")
 )
 
-// Sets oficiais do DSpace UFOP (descobertos via ListSets).
-// Mantemos como constantes para validação acadêmica + facilidade.
+// Sets oficiais do DSpace UFOP (descobertos via ListSets em 2026).
+// Documentação acadêmica: discovered by querying /server/oai/request?verb=ListSets.
 const (
-	UFOPSetDepDireito    = "com_123456789_656"   // DEDIR - Departamento de Direito
-	UFOPSetEscolaDireito = "com_123456789_653"   // EDTM - Escola de Direito, Turismo e Museologia
-	UFOPSetPPGDireito    = "com_123456789_10890" // PPG em Direito
-	UFOPSetDepEngMinas   = "com_123456789_510"   // DEMIN - Engenharia de Minas
-	UFOPSetEscolaMinas   = "com_123456789_6"     // EM - Escola de Minas (completa)
+	// — Direito (graduação + pós) —
+	UFOPSetDepDireito    = "com_123456789_656"   // DEDIR  — Departamento de Direito (graduação/TCCs)
+	UFOPSetEscolaDireito = "com_123456789_653"   // EDTM   — Escola de Direito, Turismo e Museologia
+	UFOPSetPPGDireito    = "com_123456789_10890" // PPG-Direito — pós-graduação stricto sensu
+
+	// — Engenharia de Minas + Escola de Minas (graduação + pós) —
+	UFOPSetDepEngMinas   = "com_123456789_510"   // DEMIN  — Departamento de Engenharia de Minas (graduação)
+	UFOPSetEscolaMinas   = "com_123456789_6"     // EM     — Escola de Minas (umbrella histórica)
+	UFOPSetPPGEngMineral = "com_123456789_576"   // PPGEM  — PPG em Engenharia Mineral
+	UFOPSetDepGeologia   = "com_123456789_8"     // DEGEO  — Geologia (complementar à mineração)
 )
 
 // OAIClient fetches records from UFOP's OAI-PMH repository.
