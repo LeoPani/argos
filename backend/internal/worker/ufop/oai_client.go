@@ -307,11 +307,23 @@ func mapOAIToDomain(rec oaiRecord) *domain.Publication {
 		}
 	}
 
+	// DOI preferred, mas se ausente usamos o handle do repositório UFOP
+	// (URL clicável que o usuário verá no site).
 	doi := ""
 	for _, id := range dc.Identifiers {
 		if strings.HasPrefix(id, "http://dx.doi.org/") || strings.HasPrefix(id, "https://doi.org/") {
 			doi = id
 			break
+		}
+	}
+	// Fallback: pega o primeiro handle do repositorio.ufop.br
+	if doi == "" {
+		for _, id := range dc.Identifiers {
+			if strings.Contains(id, "repositorio.ufop.br/handle/") ||
+				strings.Contains(id, "repositorio.ufop.br/jspui/handle/") {
+				doi = id
+				break
+			}
 		}
 	}
 
