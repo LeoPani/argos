@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -106,11 +107,22 @@ type HarvestResult struct {
 	Total        int
 }
 
-// Harvest fetches all records from the UFOP repository since a given date.
-// Use from="" to fetch everything (slow on first run).
-// Use set="" para todo o repositório, ou um setSpec (ex: UFOPSetDepDireito).
+// Harvest fetches records from the UFOP repository.
+//   from        — filter by datestamp >= from (RFC 3339 date, ex: "2023-01-01"). Empty = all.
+//   set         — DSpace community/collection spec (UFOPSetDepDireito, etc). Empty = all.
+//   maxRecords  — cap. The N MOST RECENT records (by publication date) are returned.
+//
+// OAI-PMH não tem ordenação explícita, então coletamos *3× maxRecords*
+// e ordenamos por PublishedDate desc localmente. Isso garante "mais novos"
+// sem pegar o repositório inteiro.
 func (c *OAIClient) Harvest(ctx context.Context, from, set string, maxRecords int) (*HarvestResult, error) {
 	result := &HarvestResult{}
+
+	// Coletamos um buffer maior pra poder ordenar por data desc depois.
+	collectBuffer := maxRecords * 3
+	if collectBuffer == 0 {
+		collectBuffer = 0 // sem limite quando caller pede tudo
+	}
 
 	params := url.Values{
 		"verb":           {"ListRecords"},
@@ -159,8 +171,9 @@ func (c *OAIClient) Harvest(ctx context.Context, from, set string, maxRecords in
 				result.Publications = append(result.Publications, pub)
 				result.Total++
 			}
-			if maxRecords > 0 && result.Total >= maxRecords {
-				return result, nil
+			if collectBuffer > 0 && result.Total >= collectBuffer {
+				// Coletou buffer suficiente, vai ordenar + truncar abaixo
+				goto sortAndTrim
 			}
 		}
 
@@ -178,7 +191,30 @@ func (c *OAIClient) Harvest(ctx context.Context, from, set string, maxRecords in
 		}
 	}
 
-	c.log.Info("ufop oai: harvest complete", "total", result.Total)
+sortAndTrim:
+	// Ordena por PublishedDate desc (mais novos primeiro).
+	// Records sem PublishedDate vão pro fim.
+	sort.SliceStable(result.Publications, func(i, j int) bool {
+		a, b := result.Publications[i].PublishedDate, result.Publications[j].PublishedDate
+		if a == nil && b == nil {
+			return false
+		}
+		if a == nil {
+			return false
+		}
+		if b == nil {
+			return true
+		}
+		return a.After(*b)
+	})
+
+	// Trunca para maxRecords após ordenar
+	if maxRecords > 0 && len(result.Publications) > maxRecords {
+		result.Publications = result.Publications[:maxRecords]
+		result.Total = maxRecords
+	}
+
+	c.log.Info("ufop oai: harvest complete (sorted desc)", "total", result.Total, "set", set)
 	return result, nil
 }
 
