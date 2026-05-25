@@ -37,3 +37,8 @@ CLAUDE.md
 AGENTS.md
 **/CLAUDE.md
 **/AGENTS.md
+
+# === Argos training (auto-gerado, regenerável) ===
+ai-service/training/data/
+ai-service/training/models/
+ai-service/training/outputs/

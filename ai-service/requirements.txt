@@ -7,8 +7,17 @@ pydantic>=2.9.0
 torch>=2.4.0
 transformers>=4.46.0
 tokenizers>=0.20.0
+sentence-transformers>=3.0.0   # paraphrase-multilingual-MiniLM (Reimers 2020)
+scikit-learn>=1.5.0            # TF-IDF baseline + LogReg / RandomForest
+joblib>=1.4.0
+numpy>=1.26.0
 
-# === Training only (optional in production) ===
+# === Annotation pipeline (LLM-as-annotator, Honovich 2022) ===
+anthropic>=0.40.0
+psycopg2-binary>=2.9.0
+tqdm>=4.66.0
+
+# === Training (optional in production) ===
 datasets>=3.1.0
 accelerate>=1.1.0
 pandas>=2.2.0
