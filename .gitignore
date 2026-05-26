@@ -42,3 +42,8 @@ AGENTS.md
 ai-service/training/data/
 ai-service/training/models/
 ai-service/training/outputs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
