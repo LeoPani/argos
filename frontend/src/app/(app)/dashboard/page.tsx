@@ -100,15 +100,18 @@ export default function DashboardPage() {
             <KPI Icon={FileText}      label="Patentes UFOP"
               value={c ? c.patents.toLocaleString("pt-BR") : "—"}
               sub={c ? `${c.patents_classified} classificadas` : "carregando..."}
-              color="#6366f1" />
+              color="#6366f1"
+              delta={c?.patents_week} />
             <KPI Icon={Tag}           label="Marcas"
               value={c ? c.trademarks.toLocaleString("pt-BR") : "—"}
               sub={c ? `${c.trademarks_active} ativas` : "carregando..."}
-              color="#8b5cf6" />
+              color="#8b5cf6"
+              delta={c?.trademarks_week} />
             <KPI Icon={AlertTriangle} label="Disputas abertas"
               value={c ? c.disputes_open.toString() : "—"}
               sub={c ? `${c.disputes} totais` : "carregando..."}
-              color="#f59e0b" />
+              color="#f59e0b"
+              delta={c?.disputes_week} />
             <KPI Icon={Cpu}           label="IA Acurácia"
               value={aiAcc !== null ? `${aiAcc}%` : "—"}
               sub={isLive ? "BERT + TF-IDF ativo" : "offline"}
@@ -130,7 +133,8 @@ export default function DashboardPage() {
             <KPI Icon={GraduationCap} label="Oport. UFOP"
               value={c ? c.ufop_opportunities.toLocaleString("pt-BR") : "—"}
               sub={c ? `${c.ufop_high} de alto potencial` : "carregando..."}
-              color="#a855f7" />
+              color="#a855f7"
+              delta={c?.ufop_week} />
             <KPI Icon={ShieldCheck}  label="Reg. Anterioridade"
               value={c ? c.ip_timestamps.toString() : "—"}
               sub="prova de existência SHA-256"
@@ -384,15 +388,24 @@ export default function DashboardPage() {
 
 // ─── small components ─────────────────────────────────────────────────────────
 
-function KPI({ Icon, label, value, sub, color }: {
+function KPI({ Icon, label, value, sub, color, delta }: {
   Icon: typeof FileText; label: string; value: string; sub: string; color: string;
+  delta?: number;
 }) {
   return (
     <Card>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{label}</p>
-          <p className="text-2xl font-bold text-white">{value}</p>
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-bold text-white">{value}</p>
+            {delta !== undefined && delta > 0 && (
+              <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
+                style={{ background: "#34d39920", color: "#34d399" }}>
+                +{delta} semana
+              </span>
+            )}
+          </div>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{sub}</p>
         </div>
         <div className="p-2 rounded-lg" style={{ background: color + "20" }}>

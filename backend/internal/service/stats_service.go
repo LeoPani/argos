@@ -30,6 +30,12 @@ type StatsCounts struct {
 	INPIPublications   int64 `json:"inpi_publications"`  // despachos from RPI harvest
 	LatestRPI          int64 `json:"latest_rpi"`         // most recent RPI number ingested
 	IPTimestamps       int64 `json:"ip_timestamps"`      // proof-of-existence records
+
+	// Delta — new records added in the last 7 days (shown as "+N" on KPI cards)
+	PatentsWeek     int64 `json:"patents_week"`
+	TrademarksWeek  int64 `json:"trademarks_week"`
+	DisputesWeek    int64 `json:"disputes_week"`
+	UFOPWeek        int64 `json:"ufop_week"`
 }
 
 // IPCSlice is one entry in the IPC distribution chart.
@@ -170,6 +176,11 @@ func (s *StatsService) counts(ctx context.Context) (StatsCounts, error) {
 		{`SELECT COUNT(*) FROM inpi_publications`, &c.INPIPublications},
 		{`SELECT COALESCE(MAX(rpi_number), 0) FROM inpi_publications`, &c.LatestRPI},
 		{`SELECT COUNT(*) FROM ip_timestamps`, &c.IPTimestamps},
+		// Delta: records created in the last 7 days
+		{`SELECT COUNT(*) FROM patents    WHERE created_at >= NOW() - INTERVAL '7 days'`, &c.PatentsWeek},
+		{`SELECT COUNT(*) FROM trademarks WHERE created_at >= NOW() - INTERVAL '7 days'`, &c.TrademarksWeek},
+		{`SELECT COUNT(*) FROM disputes   WHERE created_at >= NOW() - INTERVAL '7 days'`, &c.DisputesWeek},
+		{`SELECT COUNT(*) FROM ufop_opportunities WHERE created_at >= NOW() - INTERVAL '7 days' AND COALESCE(is_patentable, true)`, &c.UFOPWeek},
 	}
 
 	for _, q := range queries {

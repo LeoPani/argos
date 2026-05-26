@@ -36,16 +36,23 @@ import (
 	"strings"
 
 	"github.com/LeoPani/argos/backend/internal/ai"
-	"github.com/LeoPani/argos/backend/internal/ai/groqclassifier"
 	"github.com/LeoPani/argos/backend/internal/domain"
 	"github.com/LeoPani/argos/backend/internal/repository"
 )
+
+// RawChatter is the narrow interface the SmartFilingService needs from an LLM
+// client — just the ability to send an arbitrary chat payload and get text back.
+// *groqclassifier.Client satisfies this interface, but we depend only on the
+// behavior, not the concrete type.
+type RawChatter interface {
+	RawChat(ctx context.Context, payload any) (string, error)
+}
 
 // SmartFilingService orchestrates the BERT call + prior art search.
 type SmartFilingService struct {
 	ai      ai.AIService
 	patents repository.PatentRepository
-	groq    *groqclassifier.Client // optional; nil → template claim
+	llm     RawChatter // optional; nil → template claim
 }
 
 func NewSmartFilingService(ai ai.AIService, patents repository.PatentRepository) *SmartFilingService {
@@ -53,8 +60,9 @@ func NewSmartFilingService(ai ai.AIService, patents repository.PatentRepository)
 }
 
 // WithGroq enables LLM-generated claim drafting.
-func (s *SmartFilingService) WithGroq(gc *groqclassifier.Client) *SmartFilingService {
-	s.groq = gc
+// Accepts any RawChatter — typically *groqclassifier.Client in production.
+func (s *SmartFilingService) WithGroq(gc RawChatter) *SmartFilingService {
+	s.llm = gc
 	return s
 }
 
@@ -196,9 +204,9 @@ func (s *SmartFilingService) Analyze(ctx context.Context, in FilingInput) (*Fili
 	}
 	out.NextSteps = nextSteps
 
-	// ── 5. Generate claim (Groq LLM if available, else template) ────────
-	if s.groq != nil {
-		if claim, err := s.generateClaimWithGroq(ctx, in, out); err == nil && claim != "" {
+	// ── 5. Generate claim (LLM if available, else template) ────────────
+	if s.llm != nil {
+		if claim, err := s.generateClaimWithLLM(ctx, in, out); err == nil && claim != "" {
 			out.SuggestedClaim = claim
 		} else {
 			out.SuggestedClaim = generateClaim(in, out)
@@ -210,9 +218,9 @@ func (s *SmartFilingService) Analyze(ctx context.Context, in FilingInput) (*Fili
 	return out, nil
 }
 
-// generateClaimWithGroq uses llama-3.3-70b to draft a real independent claim
+// generateClaimWithLLM uses the configured LLM to draft a real independent claim
 // following Brazilian INPI standards (Lei 9.279/96 + Diretrizes INPI 2023).
-func (s *SmartFilingService) generateClaimWithGroq(ctx context.Context, in FilingInput, sug *FilingSuggestion) (string, error) {
+func (s *SmartFilingService) generateClaimWithLLM(ctx context.Context, in FilingInput, sug *FilingSuggestion) (string, error) {
 	ipcNote := ""
 	if sug.IPCLetter != "" {
 		ipcNote = fmt.Sprintf("Categoria IPC sugerida: %s (%s).", sug.IPCLetter, sug.IPCName)
@@ -262,7 +270,7 @@ Instruções:
 		},
 	}
 
-	result, err := s.groq.RawChat(ctx, payload)
+	result, err := s.llm.RawChat(ctx, payload)
 	if err != nil {
 		return "", err
 	}

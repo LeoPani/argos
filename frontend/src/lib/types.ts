@@ -831,6 +831,11 @@ export interface StatsCounts {
   inpi_publications: number;
   latest_rpi: number;
   ip_timestamps: number;
+  // Delta: new records in last 7 days
+  patents_week: number;
+  trademarks_week: number;
+  disputes_week: number;
+  ufop_week: number;
 }
 
 export interface IPCSlice {
