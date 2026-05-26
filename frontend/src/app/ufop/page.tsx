@@ -11,6 +11,8 @@ import { useUFOPOpportunities } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { SkeletonKPI, SkeletonList } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { AnalysisModeBadge } from "@/components/ui/analysis-mode-badge";
+import { SemanticSearchBox } from "@/components/ui/semantic-search-box";
 import {
   GraduationCap, Flame, Minus, TrendingDown,
   ExternalLink, RefreshCw, CheckCircle2, XCircle,
@@ -43,29 +45,45 @@ const KNOWN_AREAS = [
 
 // ─── main component ──────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 50;
+
 export default function UFOPPage() {
   const [levelFilter, setLevelFilter] = useState<OpportunityLevel | "all">("all");
   const [areaFilter, setAreaFilter]   = useState<string>("all");
+  const [patentableOnly, setPatentableOnly] = useState<boolean>(true);
+  const [page, setPage] = useState(0);
 
-  const { data, error, isLoading, mutate } = useUFOPOpportunities({ limit: "200" });
+  // Reseta página quando filtros mudam
+  useMemo(() => { setPage(0); }, [levelFilter, areaFilter, patentableOnly]);
+
+  // Filtros agora vão pro servidor — paginação real
+  const params: Record<string, string> = {
+    limit:  String(PAGE_SIZE),
+    offset: String(page * PAGE_SIZE),
+  };
+  if (patentableOnly)         params.patentable_only = "true";
+  if (levelFilter !== "all")  params.level           = levelFilter;
+  if (areaFilter !== "all")   params.department      = areaFilter;
+
+  const { data, error, isLoading, mutate } = useUFOPOpportunities(params);
+
+  // KPIs globais — só patenteáveis ativos (sem filtros adicionais)
+  const { data: globalStats } = useUFOPOpportunities({ limit: "1", patentable_only: "true" });
+  const { data: rejectedStats } = useUFOPOpportunities({ limit: "1" });
 
   const isLive  = !error && !!data;
   const loading = isLoading && !data && !error;
-  const all: UFOPOpportunity[] = data?.items ?? [];
+  const opportunities: UFOPOpportunity[] = data?.items ?? [];
+  const total      = data?.pagination?.total ?? 0;
+  const pageCount  = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const opportunities = useMemo(() => {
-    return all.filter(o => {
-      if (levelFilter !== "all" && o.opportunity_level !== levelFilter) return false;
-      if (areaFilter !== "all") {
-        if (!(o.department ?? "").includes(areaFilter)) return false;
-      }
-      return true;
-    });
-  }, [all, levelFilter, areaFilter]);
-
-  const highCount = all.filter(o => o.opportunity_level === "high").length;
-  const newCount  = all.filter(o => o.status === "new").length;
-  const converted = all.filter(o => o.status === "converted").length;
+  const patentableCount    = globalStats?.pagination?.total ?? 0;
+  const allCount           = rejectedStats?.pagination?.total ?? 0;
+  const nonPatentableCount = Math.max(0, allCount - patentableCount);
+  // KPIs adicionais só fazem sentido sobre o que veio agora (página corrente)
+  const highCount   = opportunities.filter(o => o.opportunity_level === "high").length;
+  const newCount    = opportunities.filter(o => o.status === "new").length;
+  const converted   = opportunities.filter(o => o.status === "converted").length;
 
   async function handleStatus(id: number, status: UFOPStatus) {
     try {
@@ -87,11 +105,12 @@ export default function UFOPPage() {
             Publicações reais do repositório UFOP analisadas para potencial de PI.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <AnalysisModeBadge />
           {isLive ? (
             <span className="text-xs text-emerald-400 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-              {all.length} oportunidades reais
+              {total} no filtro · {allCount} no total
             </span>
           ) : (
             <span className="text-xs text-amber-400">backend offline</span>
@@ -108,22 +127,50 @@ export default function UFOPPage() {
           <><SkeletonKPI /><SkeletonKPI /><SkeletonKPI /><SkeletonKPI /></>
         ) : (
           [
-            { label: "Total de oportunidades", value: all.length.toString() },
-            { label: "Alta prioridade",         value: highCount.toString() },
-            { label: "Aguardando revisão",      value: newCount.toString() },
-            { label: "Convertidas em consulta", value: converted.toString() },
-          ].map(({ label, value }) => (
+            { label: "Patenteáveis (Art. 8)",   value: patentableCount.toString(), hint: `${allCount} total` },
+            { label: "Nesta página · alta",     value: highCount.toString(), hint: `${total} no filtro` },
+            { label: "Excluídas (Art. 10 LPI)", value: nonPatentableCount.toString(), hint: "Direito, Letras, etc" },
+            { label: "Convertidas em consulta", value: converted.toString(), hint: `${newCount} aguardando revisão` },
+          ].map(({ label, value, hint }) => (
             <Card key={label}>
               <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{label}</p>
               <p className="text-2xl font-bold text-white">{value}</p>
+              {hint && <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{hint}</p>}
             </Card>
           ))
         )}
       </div>
 
+      {/* Busca semântica local */}
+      <SemanticSearchBox placeholder="Buscar oportunidades UFOP por similaridade (ex: beneficiamento de minério, contrato de transferência)…" />
+
       {/* Filtros */}
       <Card>
         <div className="space-y-3">
+          {/* Filtro is_patentable (Art. 10 LPI) */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <Filter size={11} className="text-slate-500" />
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>Patenteabilidade:</span>
+            <button onClick={() => setPatentableOnly(true)}
+              className="px-2.5 py-1 rounded-full text-xs transition-colors"
+              style={{
+                background: patentableOnly ? "#34d39920" : "var(--surface-2)",
+                color: patentableOnly ? "#34d399" : "var(--text-muted)",
+                border: `1px solid ${patentableOnly ? "#34d39960" : "var(--border)"}`,
+              }}>
+              ✓ Só patenteáveis (Art. 8)
+            </button>
+            <button onClick={() => setPatentableOnly(false)}
+              className="px-2.5 py-1 rounded-full text-xs transition-colors"
+              style={{
+                background: !patentableOnly ? "var(--accent)" : "var(--surface-2)",
+                color: !patentableOnly ? "white" : "var(--text-muted)",
+                border: "1px solid var(--border)",
+              }}>
+              Mostrar todos (inclui Art. 10)
+            </button>
+          </div>
+
           {/* Filtro por nível */}
           <div className="flex items-center gap-2 flex-wrap">
             <Filter size={11} className="text-slate-500" />
@@ -155,17 +202,16 @@ export default function UFOPPage() {
               Todas
             </button>
             {KNOWN_AREAS.map(a => {
-              const count = all.filter(o => (o.department ?? "").includes(a.match)).length;
               const active = areaFilter === a.match;
               return (
                 <button key={a.key} onClick={() => setAreaFilter(active ? "all" : a.match)}
                   className="px-2.5 py-1 rounded-full text-xs transition-colors"
                   style={{
                     background: active ? "#a855f7" : "var(--surface-2)",
-                    color: active ? "white" : count > 0 ? "white" : "var(--text-muted)",
+                    color: active ? "white" : "var(--text-muted)",
                     border: `1px solid ${active ? "#a855f7" : "var(--border)"}`,
                   }}>
-                  {a.key} <span className="opacity-70">({count})</span>
+                  {a.key}
                 </button>
               );
             })}
@@ -175,12 +221,15 @@ export default function UFOPPage() {
 
       {/* Lista de oportunidades — 100% width (sem sidebar de notícias mock) */}
       <div>
-        <h2 className="text-sm font-semibold text-white mb-3">
-          Oportunidades de PI detectadas pela IA
-          <span className="ml-2 text-xs font-normal" style={{ color: "var(--text-muted)" }}>
-            ({opportunities.length} resultados)
-          </span>
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-white">
+            Oportunidades de PI detectadas
+            <span className="ml-2 text-xs font-normal" style={{ color: "var(--text-muted)" }}>
+              · página {page + 1} de {pageCount} · {total} no filtro
+            </span>
+          </h2>
+          <PaginationControls page={page} pageCount={pageCount} onChange={setPage} />
+        </div>
 
         {loading && <SkeletonList count={3} />}
 
@@ -200,7 +249,44 @@ export default function UFOPPage() {
             <OpportunityCard key={opp.id} opp={opp} onStatus={handleStatus} />
           ))}
         </div>
+
+        {!loading && opportunities.length > 0 && (
+          <div className="flex items-center justify-between mt-4 pt-3"
+            style={{ borderTop: "1px solid var(--border)" }}>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Mostrando {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} de {total}
+            </span>
+            <PaginationControls page={page} pageCount={pageCount} onChange={setPage} />
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ─── Paginação ──────────────────────────────────────────────────────────────
+
+function PaginationControls({
+  page, pageCount, onChange,
+}: { page: number; pageCount: number; onChange: (p: number) => void }) {
+  if (pageCount <= 1) return null;
+  return (
+    <div className="flex items-center gap-1">
+      <Button variant="ghost" size="sm" onClick={() => onChange(0)} disabled={page === 0}>
+        «
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => onChange(page - 1)} disabled={page === 0}>
+        ‹ Anterior
+      </Button>
+      <span className="text-xs px-2" style={{ color: "var(--text-muted)" }}>
+        {page + 1} / {pageCount}
+      </span>
+      <Button variant="ghost" size="sm" onClick={() => onChange(page + 1)} disabled={page >= pageCount - 1}>
+        Próximo ›
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => onChange(pageCount - 1)} disabled={page >= pageCount - 1}>
+        »
+      </Button>
     </div>
   );
 }
@@ -214,30 +300,53 @@ function OpportunityCard({ opp, onStatus }: {
   const [open, setOpen] = useState(false);
   const { label, variant, icon } = levelInfo(opp.opportunity_level);
   const firstAuthor = opp.authors?.[0] ?? "—";
+  const nonPatentable = opp.is_patentable === false;
   const borderColor =
+    nonPatentable                      ? "#6b728030" :
     opp.opportunity_level === "high"   ? "#ef444430" :
     opp.opportunity_level === "medium" ? "#f59e0b30" : "var(--border)";
 
   return (
-    <Card style={{ borderColor }}>
+    <Card style={{ borderColor, opacity: nonPatentable ? 0.78 : 1 }}>
       {/* Top row — título + badges + status */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <Badge variant={variant}>{icon} {label}</Badge>
+            {nonPatentable ? (
+              <span className="text-xs px-2 py-0.5 rounded-full"
+                style={{ background: "#6b728020", color: "#94a3b8", border: "1px solid #6b728060" }}>
+                ⚖ Não-patenteável (Art. 10 LPI)
+              </span>
+            ) : (
+              <Badge variant={variant}>{icon} {label}</Badge>
+            )}
             <Badge variant="muted">{sourceLabel(opp.source)}</Badge>
             {opp.department && <Badge variant="info">{opp.department}</Badge>}
             <Badge variant="muted">IPC: {opp.ipc_suggestion}</Badge>
-            <span className="text-xs font-semibold"
-              style={{ color: opp.pi_score >= 5.5 ? "#34d399" : opp.pi_score >= 3 ? "#fbbf24" : "var(--text-muted)" }}>
-              PI Score {opp.pi_score.toFixed(1)}
-            </span>
+            {!nonPatentable && (
+              <span className="text-xs font-semibold"
+                style={{ color: opp.pi_score >= 5.5 ? "#34d399" : opp.pi_score >= 3 ? "#fbbf24" : "var(--text-muted)" }}>
+                PI Score {opp.pi_score.toFixed(1)}
+              </span>
+            )}
+            {opp.classifier_version && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                style={{ background: "var(--surface-2)", color: "var(--text-muted)" }}
+                title={opp.confidence ? `Confiança: ${(opp.confidence * 100).toFixed(0)}%` : undefined}>
+                {opp.classifier_version}
+              </span>
+            )}
           </div>
           <p className="text-base font-semibold text-white leading-snug">{opp.title}</p>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
             {firstAuthor}
             {opp.published_at ? ` · ${formatDate(opp.published_at)}` : ""}
           </p>
+          {opp.rationale && (
+            <p className="text-xs mt-1.5 italic" style={{ color: nonPatentable ? "#94a3b8" : "var(--text-muted)" }}>
+              → {opp.rationale}
+            </p>
+          )}
         </div>
         <StatusChip status={opp.status} />
       </div>
@@ -250,7 +359,7 @@ function OpportunityCard({ opp, onStatus }: {
               {opp.abstract}
             </p>
           )}
-          {opp.ai_analysis && (
+          {opp.ai_analysis && opp.ai_analysis !== opp.rationale && (
             <div className="rounded-lg p-3 text-sm"
               style={{ background: "var(--surface-2)", color: "#a5b4fc" }}>
               🤖 {opp.ai_analysis}
@@ -265,13 +374,15 @@ function OpportunityCard({ opp, onStatus }: {
           {open ? "Recolher" : "Ver resumo + análise IA"}
         </Button>
 
-        {/* 🎯 NOVA AÇÃO PRINCIPAL: gerar contrato TT */}
-        <Link href={`/tt-contract/new?from_ufop=${opp.id}`}>
-          <Button size="sm">
-            <FileSignature size={12} />
-            Gerar contrato TT
-          </Button>
-        </Link>
+        {/* Contrato TT só faz sentido pra patenteáveis */}
+        {!nonPatentable && (
+          <Link href={`/tt-contract/new?from_ufop=${opp.id}`}>
+            <Button size="sm">
+              <FileSignature size={12} />
+              Gerar contrato TT
+            </Button>
+          </Link>
+        )}
 
         {opp.url && (
           <a href={opp.url} target="_blank" rel="noopener noreferrer">

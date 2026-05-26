@@ -61,6 +61,10 @@ export default function MarketplacePage() {
           <p className="text-sm text-indigo-100">
             Tecnologias disponíveis para licenciamento da Universidade Federal de Ouro Preto
           </p>
+          <p className="text-xs text-indigo-200 mt-1 opacity-90">
+            Catálogo parcial — ingestão Google Patents pausada por rate-limit
+            (10 de 261 patentes UFOP carregadas). Lens.org desbloqueia o restante.
+          </p>
         </div>
       </header>
 

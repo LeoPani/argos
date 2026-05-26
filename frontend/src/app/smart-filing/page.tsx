@@ -98,18 +98,20 @@ export default function SmartFilingPage() {
         </h1>
         <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
           Avalie a patenteabilidade de um draft de invenção <span className="text-white">antes</span> do depósito no INPI.
-          Combina BERT (IPC) com busca de anterioridade no portfolio UFOP.
+          IPC via BERT (quando online); senão heurística por keywords. Anterioridade via Jaccard sobre portfolio UFOP local.
         </p>
       </div>
 
       {/* Disclaimer */}
-      <Card style={{ borderColor: "#a855f730" }}>
+      <Card style={{ borderColor: "#fbbf2430" }}>
         <div className="flex items-start gap-3">
-          <BookOpen size={15} className="text-purple-400 mt-0.5 shrink-0" />
+          <BookOpen size={15} className="text-amber-400 mt-0.5 shrink-0" />
           <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-            <p className="text-white font-medium mb-1">Metodologia</p>
+            <p className="text-white font-medium mb-1">Honestidade metodológica</p>
             Score composto baseado em Bessen (2008) <em>Research Policy</em> + Lerner-Seru (2017) <em>RFS</em>.
-            BERT classifica IPC; busca interna usa similaridade Jaccard de bigrams. {" "}
+            <strong className="text-white"> O score atual é heurístico</strong> — quando o classificador
+            treinado entrar no ar (ver banner no dashboard), este card vira ML supervisionado.
+            Anterioridade é <em>local</em> (só portfolio UFOP), não substitui busca no INPI/Espacenet.{" "}
             <Link href="/metodologia" className="text-indigo-400 hover:text-indigo-300">
               Ver metodologia completa <ExternalLink size={9} className="inline" />
             </Link>

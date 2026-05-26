@@ -90,9 +90,13 @@ type oaiHeader struct {
 // departmentBySet maps DSpace community specs to legible department names.
 // Permite filtrar oportunidades por departamento real (em vez de derivar
 // de affiliations, que vêm sempre vazias no Dublin Core puro).
+//
+// Cuidado com EDTM (com_123456789_653): a escola agrupa Direito + Turismo +
+// Museologia. resolveDepartment() faz inferência heurística pelo título quando
+// o set é EDTM. Os outros sets são unidisciplinares.
 var departmentBySet = map[string]string{
 	"com_123456789_656":   "Direito (graduação)",
-	"com_123456789_653":   "Direito · Escola EDTM",
+	"com_123456789_653":   "EDTM (multidisciplinar)", // resolvido por título abaixo
 	"com_123456789_10890": "Direito · PPG (pós)",
 	"com_123456789_510":   "Engenharia de Minas (graduação)",
 	"com_123456789_6":     "Escola de Minas",
@@ -100,7 +104,60 @@ var departmentBySet = map[string]string{
 	"com_123456789_8":     "Geologia (DEGEO)",
 }
 
+// edtmDisciplineByKeyword identifica subárea da Escola EDTM (Direito,
+// Turismo, Museologia) por keywords no título/abstract.
+// Listas pequenas e específicas — preferimos retornar "EDTM (multidisciplinar)"
+// a errar para Direito quando o sinal é fraco.
+var edtmKeywordRules = []struct {
+	keywords []string
+	label    string
+}{
+	{
+		// Museologia / Patrimônio / História da Arte / Conservação
+		keywords: []string{
+			"museu", "museol", "patrimôni", "patrimônio", "patrimoni",
+			"acervo", "curador", "exposiç", "iconograf", "iconograph",
+			"entalh", "barroc", "matriz do pilar", "decoraç", "tomb",
+			"conservaç de bens",
+		},
+		label: "Museologia · EDTM",
+	},
+	{
+		// Turismo / Hospitalidade
+		keywords: []string{
+			"turismo", "turist", "hospitalidad", "hospitalit", "hotel",
+			"guia turíst", "casa de hóspedes", "pousada",
+		},
+		label: "Turismo · EDTM",
+	},
+	{
+		// Direito (sinais inequívocos)
+		keywords: []string{
+			"direito", "lei", "jurispr", "jurídic", "constitucional",
+			"processo civil", "processo penal", "tributár", "trabalhista",
+			"administrativo", "litigância", "ação civil", "tribunal",
+		},
+		label: "Direito · EDTM",
+	},
+}
+
+func inferEDTMDiscipline(title, abstract string) string {
+	t := strings.ToLower(title + " " + abstract)
+	for _, rule := range edtmKeywordRules {
+		for _, kw := range rule.keywords {
+			if strings.Contains(t, kw) {
+				return rule.label
+			}
+		}
+	}
+	return "EDTM (multidisciplinar)"
+}
+
 // resolveDepartment retorna o primeiro setSpec mapeado, ou genérico UFOP.
+//
+// Quando o set é EDTM, faz refinamento por título via inferEDTMDiscipline
+// (Direito / Turismo / Museologia). Use ResolveDepartmentWithTitle pra
+// passar o texto. Esta função sem título cai pro genérico EDTM.
 func resolveDepartment(setSpecs []string) string {
 	for _, s := range setSpecs {
 		if dept, ok := departmentBySet[s]; ok {
@@ -352,7 +409,11 @@ func mapOAIToDomain(rec oaiRecord) *domain.Publication {
 	}
 
 	// Departamento real vem do setSpec (community DSpace).
+	// EDTM precisa refinamento por título (multidisciplinar).
 	dept := resolveDepartment(rec.Header.SetSpec)
+	if dept == "EDTM (multidisciplinar)" {
+		dept = inferEDTMDiscipline(title, abstract)
+	}
 
 	return &domain.Publication{
 		Source:        domain.PublicationSourceManual, // using "manual" until ufop_oai is in constraint

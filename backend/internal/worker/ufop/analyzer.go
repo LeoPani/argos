@@ -19,10 +19,12 @@ package ufop
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/LeoPani/argos/backend/internal/ai"
+	"github.com/LeoPani/argos/backend/internal/ai/groqclassifier"
 	"github.com/LeoPani/argos/backend/internal/domain"
 )
 
@@ -114,12 +116,29 @@ type AnalyzeInput struct {
 
 // Analyzer wraps the AI service to score opportunities.
 type Analyzer struct {
-	ai ai.AIService
+	ai   ai.AIService
+	groq *groqclassifier.Client // optional — nil = fallback heurística
+	log  *slog.Logger
 }
 
 // NewAnalyzer creates an Analyzer backed by the given AIService.
+// O Groq classifier é opcional: se nil ou se a chamada falhar, cai em heurística.
 func NewAnalyzer(ai ai.AIService) *Analyzer {
-	return &Analyzer{ai: ai}
+	return &Analyzer{ai: ai, log: slog.Default()}
+}
+
+// WithGroq habilita classificação real-time via Groq Cloud (Llama 3.3 70B).
+// Quando configurado, vira o "primary classifier" sobre a heurística.
+// O BERT, se online, ainda é usado pra IPC suggestion (mais barato).
+func (a *Analyzer) WithGroq(c *groqclassifier.Client) *Analyzer {
+	a.groq = c
+	return a
+}
+
+// WithLogger sobrescreve o logger default. Útil para CLI tools.
+func (a *Analyzer) WithLogger(log *slog.Logger) *Analyzer {
+	a.log = log
+	return a
 }
 
 // Analyze classifies the text, scores PI potential, and returns a
@@ -127,6 +146,29 @@ func NewAnalyzer(ai ai.AIService) *Analyzer {
 // function still returns a (lower-scored) result using keyword analysis
 // alone and IPC category 0 with similarity 0.
 func (a *Analyzer) Analyze(ctx context.Context, in AnalyzeInput) (*domain.UFOPOpportunity, error) {
+	// ── 0. Art. 10 LPI — rejeição precoce ─────────────────────────────────
+	// Art. 10 da Lei 9.279/96 exclui de patenteabilidade: esquemas jurídicos,
+	// contábeis, comerciais; concepções puramente abstratas; apresentações
+	// de informação (literatura, história pura); métodos matemáticos.
+	// Para esses, retornamos rationale honesta + nível low + score 0.
+	if reason := excludedByArt10LPI(in.Department, in.Title, in.Abstract); reason != "" {
+		return buildRejectedOpp(in, reason), nil
+	}
+
+	// ── 0.5. LLM classifier (Groq) — primary path quando disponível ───────
+	// Llama 3.3 70B via Groq Cloud retorna is_patentable + ipc + rationale.
+	// Se a chamada falhar, fall-through pra heurística embaixo.
+	if a.groq != nil {
+		llmCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+		res, err := a.groq.Classify(llmCtx, in.Department, in.Title, in.Abstract)
+		cancel()
+		if err == nil && res != nil {
+			return buildLLMOpp(in, res, a.groq.Model()), nil
+		}
+		a.log.Warn("groq classify failed; falling back to heuristic",
+			"err", err, "external_id", in.ExternalID)
+	}
+
 	// ── 1. Keyword scoring ────────────────────────────────────────────────
 	titleLower := strings.ToLower(in.Title)
 	abstractLower := strings.ToLower(in.Abstract)
@@ -139,6 +181,10 @@ func (a *Analyzer) Analyze(ctx context.Context, in AnalyzeInput) (*domain.UFOPOp
 		"metodologia": true, "desenvolvimento": true, "validação": true,
 		"caracterização": true, "aplicação": true, "implementação": true,
 		"otimização": true, "modelagem": true,
+		// Genéricas demais: pontuam só se houver outro sinal técnico real.
+		// "processo", "método", "sistema" foram movidos pra weak após
+		// observar falsos positivos em trabalhos de direito processual.
+		"processo": true, "método": true, "sistema": true, "modelo": true,
 	}
 	for _, kw := range titleKeywords {
 		if strings.Contains(titleLower, kw) {
@@ -231,25 +277,204 @@ func (a *Analyzer) Analyze(ctx context.Context, in AnalyzeInput) (*domain.UFOPOp
 	// ── 5. AI analysis template ───────────────────────────────────────────
 	analysis := buildAnalysis(in.Title, ipcCatID, level, piScore, occ+int(titleScore/2))
 
+	// Patentável? Após Art. 10 já estar rejeitado, default true se há sinal
+	// técnico mínimo (score >= 1.5); senão null (inconcluso).
+	var isPatentable *bool
+	if piScore >= 1.5 {
+		t := true
+		isPatentable = &t
+	}
+
 	opp := &domain.UFOPOpportunity{
-		Source:        in.Source,
-		ExternalID:    in.ExternalID,
-		Title:         in.Title,
-		Authors:       in.Authors,
-		Department:    in.Department,
-		Abstract:      in.Abstract,
-		URL:           in.URL,
-		PublishedAt:   in.PublishedAt,
-		IPCSuggestion: ipcSuggestions[ipcCatID],
-		IPCCategory:   domain.IPCCategory(ipcCatID),
-		Level:         level,
-		SimilarityPct: similarityPct,
-		PIScore:       piScore,
-		AIAnalysis:    analysis,
-		Status:        domain.UFOPStatusNew,
-		PublicationID: in.PublicationID,
+		Source:            in.Source,
+		ExternalID:        in.ExternalID,
+		Title:             in.Title,
+		Authors:           in.Authors,
+		Department:        in.Department,
+		Abstract:          in.Abstract,
+		URL:               in.URL,
+		PublishedAt:       in.PublishedAt,
+		IPCSuggestion:     ipcSuggestions[ipcCatID],
+		IPCCategory:       domain.IPCCategory(ipcCatID),
+		Level:             level,
+		SimilarityPct:     similarityPct,
+		PIScore:           piScore,
+		AIAnalysis:        analysis,
+		Status:            domain.UFOPStatusNew,
+		PublicationID:     in.PublicationID,
+		IsPatentable:      isPatentable,
+		Rationale:         fmt.Sprintf("Heurística v2: title=%.1f, abstract=%.1f, IPC bonus=%.1f", titleScore, abstractScore, bonus),
+		ClassifierVersion: "heuristic-v2",
+		Confidence:        heuristicConfidence(piScore),
 	}
 	return opp, nil
+}
+
+// heuristicConfidence — converte piScore num proxy de confiança 0-1.
+// Calibrado: score 0 → 0.3 (chute), score 10 → 0.9 (alto sinal).
+// Nunca 1.0 porque heurística não merece certeza.
+func heuristicConfidence(piScore float64) float64 {
+	conf := 0.3 + (piScore/10.0)*0.6
+	if conf > 0.9 {
+		conf = 0.9
+	}
+	return conf
+}
+
+// excludedByArt10LPI — verifica se o trabalho cai nas exclusões da Lei
+// 9.279/96 Art. 10 (não considerados invenção/modelo de utilidade).
+// Retorna string com a razão se sim, vazia se não.
+//
+// Inciso II — concepções puramente abstratas
+// Inciso III — esquemas, planos, princípios ou métodos comerciais, contábeis,
+//              financeiros, educativos, publicitários, de sorteio e fiscalização
+// Inciso VI — apresentações de informações (texto puro, lit, hist)
+//
+// Heurística conservadora: prioriza dept (sinal forte) e palavras-chave
+// inequívocas.
+func excludedByArt10LPI(dept, title, abstract string) string {
+	d := strings.ToLower(dept)
+	if strings.Contains(d, "direito") || strings.Contains(d, "juríd") || strings.Contains(d, "dedir") {
+		return "Trabalho de Direito — esquemas jurídicos não são patenteáveis (Art. 10 III, Lei 9.279/96)"
+	}
+	if strings.Contains(d, "letras") || strings.Contains(d, "literatura") || strings.Contains(d, "filos") {
+		return "Trabalho de Letras/Filosofia — apresentações de informação não são patenteáveis (Art. 10 VI)"
+	}
+	if strings.Contains(d, "histór") || strings.Contains(d, "sociolog") || strings.Contains(d, "antrop") {
+		return "Trabalho de Humanidades — concepção abstrata, fora do escopo do Art. 8 LPI"
+	}
+	if strings.Contains(d, "turismo") || strings.Contains(d, "hospital") {
+		return "Trabalho de Turismo/Hospitalidade — serviços, não invenção (fora do Art. 8 LPI)"
+	}
+	if strings.Contains(d, "museol") || strings.Contains(d, "patrimôni") || strings.Contains(d, "patrimoni") {
+		return "Trabalho de Museologia/Patrimônio — apresentação de informação cultural (Art. 10 VI)"
+	}
+	if strings.Contains(d, "contáb") || strings.Contains(d, "administ") || strings.Contains(d, "economia") {
+		// Cuidado: alguns trabalhos de admin/economia podem ter inovação técnica
+		// (ex: algoritmo de otimização logística). Só rejeita se o texto for
+		// puramente metodológico-financeiro.
+		t := strings.ToLower(title + " " + abstract)
+		commercialSignal := false
+		for _, kw := range []string{"contabilidade", "tributári", "fiscal", "contrato", "mercado financeiro",
+			"governança", "gestão de pessoas", "marketing", "auditoria"} {
+			if strings.Contains(t, kw) {
+				commercialSignal = true
+				break
+			}
+		}
+		if commercialSignal {
+			return "Tema comercial/contábil — Art. 10 III LPI exclui esses métodos"
+		}
+	}
+
+	// Última checagem: keywords inequivocamente jurídicas no título
+	tLow := strings.ToLower(title)
+	for _, kw := range []string{
+		"previdência social", "previdenciário", "inss",
+		"direito do trabalho", "trabalhista", "constitucional",
+		"penal", "criminal", "administrativo", "tributári", "civil",
+		"jurisprudência", "processo civil", "processo penal",
+	} {
+		if strings.Contains(tLow, kw) {
+			return fmt.Sprintf("Título indica tema jurídico (\"%s\") — Art. 10 III LPI", kw)
+		}
+	}
+
+	return ""
+}
+
+// buildLLMOpp — converte a resposta do LLM em UFOPOpportunity. Diferente da
+// heurística, o LLM dá o veredicto autoritativo (is_patentable + IPC); o
+// PI Score é derivado de confidence × pesos de categoria.
+func buildLLMOpp(in AnalyzeInput, res *groqclassifier.Classification, model string) *domain.UFOPOpportunity {
+	ipc := res.IPCCategory
+	if ipc < 0 || ipc > 7 {
+		ipc = 0
+	}
+
+	// Se LLM disse não-patenteável → level=low, score=0, mantém rationale.
+	level := domain.UFOPLevelLow
+	piScore := 0.0
+	if res.IsPatentable {
+		// Score base = confidence (0-1) × 8 + bonus IPC (0-2).
+		piScore = res.Confidence*8.0 + ipcCategoryBonus[ipc]
+		if piScore > 10.0 {
+			piScore = 10.0
+		}
+		switch {
+		case piScore >= 6.5:
+			level = domain.UFOPLevelHigh
+		case piScore >= 4.0:
+			level = domain.UFOPLevelMedium
+		}
+	}
+
+	// Similarity é inverso a confidence — alta confiança no novo = niche
+	similarity := 60 - int(res.Confidence*40)
+	if similarity < 10 {
+		similarity = 10
+	}
+	if similarity > 75 {
+		similarity = 75
+	}
+
+	rationale := res.Rationale
+	if rationale == "" {
+		rationale = "Classificação via " + model
+	}
+
+	patentablePtr := res.IsPatentable
+	return &domain.UFOPOpportunity{
+		Source:            in.Source,
+		ExternalID:        in.ExternalID,
+		Title:             in.Title,
+		Authors:           in.Authors,
+		Department:        in.Department,
+		Abstract:          in.Abstract,
+		URL:               in.URL,
+		PublishedAt:       in.PublishedAt,
+		IPCSuggestion:     ipcSuggestions[ipc],
+		IPCCategory:       domain.IPCCategory(ipc),
+		Level:             level,
+		SimilarityPct:     similarity,
+		PIScore:           piScore,
+		AIAnalysis:        rationale,
+		Rationale:         rationale,
+		IsPatentable:      &patentablePtr,
+		ClassifierVersion: "groq-" + model,
+		Confidence:        res.Confidence,
+		Status:            domain.UFOPStatusNew,
+		PublicationID:     in.PublicationID,
+	}
+}
+
+// buildRejectedOpp — opp com is_patentable=false, level=low, score=0,
+// rationale explicando o motivo. Mantém os metadados (department, title,
+// authors) para o item continuar aparecendo no portfolio com a flag honesta.
+func buildRejectedOpp(in AnalyzeInput, reason string) *domain.UFOPOpportunity {
+	no := false
+	return &domain.UFOPOpportunity{
+		Source:            in.Source,
+		ExternalID:        in.ExternalID,
+		Title:             in.Title,
+		Authors:           in.Authors,
+		Department:        in.Department,
+		Abstract:          in.Abstract,
+		URL:               in.URL,
+		PublishedAt:       in.PublishedAt,
+		IPCSuggestion:     "— (não-patenteável)",
+		IPCCategory:       domain.IPCCategory(0),
+		Level:             domain.UFOPLevelLow,
+		SimilarityPct:     0,
+		PIScore:           0,
+		AIAnalysis:        reason,
+		Rationale:         reason,
+		IsPatentable:      &no,
+		ClassifierVersion: "heuristic-v2",
+		Confidence:        0.95, // alta confiança na exclusão por Art. 10
+		Status:            domain.UFOPStatusNew,
+		PublicationID:     in.PublicationID,
+	}
 }
 
 // heuristicIPC infere categoria IPC (0..7 → A..H) usando departamento + keywords.

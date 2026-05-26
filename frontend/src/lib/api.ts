@@ -29,13 +29,14 @@ import type {
   TTContract, TTContractListResponse, LicenseKind, ContractStatus,
   PatentPool, PoolListResponse, PoolKind, PoolMember,
   ChatThread, ChatThreadListResponse, ChatRole, ChatMessage,
-  SearchResponse,
+  SearchResponse, SemanticSearchResponse,
   MetricsResponse, MethodologyPayload, PCIScore,
   MaintenanceRecommendation, InventorProfile,
   DepartmentHealth, KnowledgeStockResponse,
   RoyaltyForecast, FilingSuggestion,
   MarketplaceResponse, CitationNetwork,
   CalendarResponse, TTTemplate,
+  AnalysisModeResponse,
 } from "./types";
 
 export const api = {
@@ -63,6 +64,10 @@ export const api = {
   search: {
     query: (q: string, limit = 6) =>
       req<SearchResponse>(`/api/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+    semantic: (q: string, topK = 20) =>
+      req<SemanticSearchResponse>(
+        `/api/v1/semantic-search?q=${encodeURIComponent(q)}&top_k=${topK}`,
+      ),
   },
 
   metrics: {
@@ -129,6 +134,10 @@ export const api = {
   ttTemplate: {
     fromUFOP: (oppID: number) =>
       req<TTTemplate>(`/api/v1/tt-template/from-ufop/${oppID}`),
+  },
+
+  system: {
+    analysisMode: () => req<AnalysisModeResponse>("/api/v1/system/analysis-mode"),
   },
 
   portfolio: {

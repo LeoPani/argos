@@ -20,6 +20,7 @@ import type {
   RoyaltyForecast,
   MarketplaceResponse, CitationNetwork,
   CalendarResponse, TTTemplate,
+  AnalysisModeResponse,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -250,6 +251,14 @@ export function useTTTemplateFromUFOP(oppID: number | null) {
     oppID ? `/api/v1/tt-template/from-ufop/${oppID}` : null,
     () => api.ttTemplate.fromUFOP(oppID!),
     { revalidateOnFocus: false }
+  );
+}
+
+export function useAnalysisMode() {
+  return useSWR<AnalysisModeResponse>(
+    "/api/v1/system/analysis-mode",
+    () => api.system.analysisMode(),
+    { refreshInterval: 30_000 }
   );
 }
 

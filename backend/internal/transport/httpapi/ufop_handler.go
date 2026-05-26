@@ -22,20 +22,24 @@ func NewUFOPHandler(svc *service.UFOPService) *UFOPHandler {
 //
 // Query params:
 //
-//	source  = oai | portal | lens
-//	level   = high | medium | low
-//	status  = new | reviewed | converted | dismissed
-//	q       = full-text search (title / abstract ILIKE)
-//	limit   = default 50, max 200
-//	offset  = default 0
+//	source           = oai | portal | lens
+//	level            = high | medium | low
+//	status           = new | reviewed | converted | dismissed
+//	q                = full-text search (title / abstract ILIKE)
+//	department       = substring (case-insensitive)
+//	patentable_only  = "true" → exclui is_patentable=false (Art. 10 LPI)
+//	limit            = default 50, max 500
+//	offset           = default 0
 func (h *UFOPHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	f := domain.UFOPFilter{
-		Source: domain.UFOPSource(q.Get("source")),
-		Level:  domain.UFOPOpportunityLevel(q.Get("level")),
-		Status: domain.UFOPOpportunityStatus(q.Get("status")),
-		Search: q.Get("q"),
+		Source:         domain.UFOPSource(q.Get("source")),
+		Level:          domain.UFOPOpportunityLevel(q.Get("level")),
+		Status:         domain.UFOPOpportunityStatus(q.Get("status")),
+		Search:         q.Get("q"),
+		DepartmentLike: q.Get("department"),
+		PatentableOnly: q.Get("patentable_only") == "true",
 	}
 	if l := q.Get("limit"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil {

@@ -1,18 +1,26 @@
 """
 Argos — FastAPI que serve os modelos treinados (Fase 5).
 
-Endpoints:
-  POST /classify           — usa modelo Sentence-BERT treinado
-  POST /classify-baseline  — usa baseline TF-IDF
-  GET  /health             — status
-  GET  /model-info         — metadata do modelo
+Carrega os 2 modelos pré-treinados (Fase 3 TF-IDF + Fase 4 SBERT) e expõe
+classificação em runtime para o backend Go consumir.
 
-Compatível com a interface antiga (api_argos.py) pra Go consumir
-sem mudanças.
+Endpoints:
+  GET  /health         — status detalhado + honestidade sobre ground truth
+  GET  /model-info     — metadata bruta dos modelos
+  POST /classify       — modelo preferido (SBERT se disponível, senão TF-IDF)
+                          Compatível com cliente Go: {"text": "..."} → {"predicted_category_id"}
+  POST /classify-baseline — força TF-IDF
+  POST /classify-sbert    — força SBERT
+  POST /compare        — roda os DOIS e devolve diff (útil pra inspeção)
+
+Schema do request:
+  Mínimo: {"text": "..."}
+  Completo: {"text": "...", "title": "...", "abstract": "...", "department": "..."}
+  Se title+abstract vierem, ignora "text" e usa concat (mesmo formato do training).
 
 Rodar:
     cd ai-service
-    source ~/argos-ai/bin/activate  (ou venv própria)
+    source ~/argos-ai/bin/activate
     uvicorn argos_classifier:app --host 0.0.0.0 --port 8000
 """
 
@@ -32,150 +40,286 @@ except ImportError as e:
 
 MODELS_DIR = Path(__file__).parent / "training" / "models"
 
+IPC_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"]
+IPC_NAMES = [
+    "Necessidades humanas",
+    "Operações/transportes",
+    "Química/metalurgia",
+    "Têxteis/papel",
+    "Construção",
+    "Mec. industrial",
+    "Física/TI",
+    "Eletricidade",
+]
+
 app = FastAPI(
     title="Argos Classifier",
-    description="ML-based IPC classification + patentability prediction",
-    version="2.0",
+    description="Sirva os modelos treinados (TF-IDF + Sentence-BERT) para o backend Go.",
+    version="3.0",
 )
 
 # ─── State ──────────────────────────────────────────────────────────────────
 
 _sbert_model = None
-_clf_pat = None     # patentability classifier
-_clf_ipc = None     # IPC classifier
-_tfidf = None
-_rf_pat = None
-_rf_ipc = None
-_metadata = {}
+_clf_sbert_pat = None
+_clf_sbert_ipc = None
+_tfidf_vec = None
+_clf_rf_pat = None
+_clf_rf_ipc = None
+_meta_tfidf: dict = {}
+_meta_sbert: dict = {}
+
 
 def load_models():
-    """Lazy load — não carrega tudo no startup."""
-    global _sbert_model, _clf_pat, _clf_ipc, _tfidf, _rf_pat, _rf_ipc, _metadata
+    global _sbert_model, _clf_sbert_pat, _clf_sbert_ipc
+    global _tfidf_vec, _clf_rf_pat, _clf_rf_ipc
+    global _meta_tfidf, _meta_sbert
 
-    meta_file = MODELS_DIR / "metadata.json"
-    if meta_file.exists():
-        _metadata = json.loads(meta_file.read_text())
+    # Fase 3 metadata
+    m_tfidf = MODELS_DIR / "metadata.json"
+    if m_tfidf.exists():
+        try:
+            _meta_tfidf = json.loads(m_tfidf.read_text())
+        except Exception:
+            _meta_tfidf = {}
 
-    sbert_path  = MODELS_DIR / "sbert_logreg_patentability.pkl"
-    sbert_ipc   = MODELS_DIR / "sbert_rf_ipc.pkl"
-    tfidf_path  = MODELS_DIR / "tfidf_vectorizer.pkl"
-    rf_pat_path = MODELS_DIR / "rf_patentability.pkl"
-    rf_ipc_path = MODELS_DIR / "rf_ipc_classifier.pkl"
+    # Fase 4 metadata (separado pra não sobrescrever)
+    m_sbert = MODELS_DIR / "sbert_metadata.json"
+    if m_sbert.exists():
+        try:
+            _meta_sbert = json.loads(m_sbert.read_text())
+        except Exception:
+            _meta_sbert = {}
 
-    if sbert_path.exists():
-        _clf_pat = joblib.load(sbert_path)
-    if sbert_ipc.exists():
-        _clf_ipc = joblib.load(sbert_ipc)
-    if tfidf_path.exists():
-        _tfidf = joblib.load(tfidf_path)
-    if rf_pat_path.exists():
-        _rf_pat = joblib.load(rf_pat_path)
-    if rf_ipc_path.exists():
-        _rf_ipc = joblib.load(rf_ipc_path)
+    # Pickles
+    paths = {
+        "_clf_sbert_pat": MODELS_DIR / "sbert_logreg_patentability.pkl",
+        "_clf_sbert_ipc": MODELS_DIR / "sbert_rf_ipc.pkl",
+        "_tfidf_vec":     MODELS_DIR / "tfidf_vectorizer.pkl",
+        "_clf_rf_pat":    MODELS_DIR / "rf_patentability.pkl",
+        "_clf_rf_ipc":    MODELS_DIR / "rf_ipc_classifier.pkl",
+    }
+    g = globals()
+    for var, p in paths.items():
+        if p.exists():
+            try:
+                g[var] = joblib.load(p)
+                print(f"  ✓ loaded {p.name}")
+            except Exception as e:
+                print(f"  ⚠ failed {p.name}: {e}")
 
-    if _clf_pat is not None or _clf_ipc is not None:
-        # SBERT só se algum modelo SBERT estiver carregado
-        model_name = _metadata.get("model", "paraphrase-multilingual-MiniLM-L12-v2")
-        print(f"Loading {model_name}...")
-        _sbert_model = SentenceTransformer(model_name)
-        print("SBERT loaded.")
+    # SBERT encoder (compartilhado entre os 2 modelos SBERT)
+    if _clf_sbert_pat is not None or _clf_sbert_ipc is not None:
+        encoder_name = _meta_sbert.get("encoder", "paraphrase-multilingual-MiniLM-L12-v2")
+        print(f"  Loading SBERT encoder: {encoder_name}…")
+        g["_sbert_model"] = SentenceTransformer(encoder_name)
+        print(f"  ✓ encoder ready · dim={g['_sbert_model'].get_sentence_embedding_dimension()}")
 
+
+print("Loading Argos classifier models from", MODELS_DIR)
 load_models()
+
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
 
 class ClassifyRequest(BaseModel):
-    text: str
+    text: Optional[str] = None
+    title: Optional[str] = None
+    abstract: Optional[str] = None
+    department: Optional[str] = None
+
 
 class ClassifyResponse(BaseModel):
     text_received: str
-    predicted_category_id: int          # 0..7 (IPC A..H)
+    predicted_category_id: int          # 0..7 (compatibilidade com cliente Go)
+    ipc_letter: str
+    ipc_name: str
     patentable: Optional[bool] = None
     patentable_confidence: Optional[float] = None
     ipc_confidence: Optional[float] = None
     method: str
+    rationale: str
+
+
+class CompareResponse(BaseModel):
+    text_received: str
+    sbert: Optional[ClassifyResponse] = None
+    tfidf: Optional[ClassifyResponse] = None
+    agreement: dict   # ipc_agree, patentable_agree
+
+
+# ─── Helpers ────────────────────────────────────────────────────────────────
+
+def build_text(req: ClassifyRequest) -> str:
+    """Espelha o build_texts() do training pra não ter drift de feature."""
+    if req.title or req.abstract or req.department:
+        title    = (req.title or "").strip()
+        abstract = (req.abstract or "")[:1500].strip()
+        dept     = (req.department or "").strip()
+        return f"{title}. {abstract}. DEP: {dept}"
+    return (req.text or "").strip()
+
+
+def predict_sbert(text: str) -> Optional[ClassifyResponse]:
+    if _sbert_model is None or _clf_sbert_ipc is None:
+        return None
+    emb = _sbert_model.encode([text], convert_to_numpy=True)
+    ipc_id = int(_clf_sbert_ipc.predict(emb)[0])
+    ipc_conf = float(np.max(_clf_sbert_ipc.predict_proba(emb)))
+    pat, pat_conf = None, None
+    if _clf_sbert_pat is not None:
+        pat = bool(_clf_sbert_pat.predict(emb)[0])
+        pat_conf = float(np.max(_clf_sbert_pat.predict_proba(emb)))
+    return ClassifyResponse(
+        text_received=text[:200],
+        predicted_category_id=ipc_id,
+        ipc_letter=safe_letter(ipc_id),
+        ipc_name=safe_name(ipc_id),
+        patentable=pat,
+        patentable_confidence=pat_conf,
+        ipc_confidence=ipc_conf,
+        method="sbert_logreg_v1",
+        rationale=build_rationale("sbert", ipc_id, pat, pat_conf, ipc_conf),
+    )
+
+
+def predict_tfidf(text: str) -> Optional[ClassifyResponse]:
+    if _tfidf_vec is None or _clf_rf_ipc is None:
+        return None
+    X = _tfidf_vec.transform([text])
+    ipc_id = int(_clf_rf_ipc.predict(X)[0])
+    ipc_conf = float(np.max(_clf_rf_ipc.predict_proba(X)))
+    pat, pat_conf = None, None
+    if _clf_rf_pat is not None:
+        pat = bool(_clf_rf_pat.predict(X)[0])
+        pat_conf = float(np.max(_clf_rf_pat.predict_proba(X)))
+    return ClassifyResponse(
+        text_received=text[:200],
+        predicted_category_id=ipc_id,
+        ipc_letter=safe_letter(ipc_id),
+        ipc_name=safe_name(ipc_id),
+        patentable=pat,
+        patentable_confidence=pat_conf,
+        ipc_confidence=ipc_conf,
+        method="tfidf_random_forest_v1",
+        rationale=build_rationale("tfidf", ipc_id, pat, pat_conf, ipc_conf),
+    )
+
+
+def safe_letter(i: int) -> str:
+    return IPC_LETTERS[i] if 0 <= i < 8 else "?"
+
+
+def safe_name(i: int) -> str:
+    return IPC_NAMES[i] if 0 <= i < 8 else "Unknown"
+
+
+def build_rationale(method: str, ipc_id: int, pat: Optional[bool],
+                    pat_conf: Optional[float], ipc_conf: float) -> str:
+    parts = []
+    parts.append(f"Classificador {method}")
+    parts.append(f"IPC: {safe_letter(ipc_id)} ({safe_name(ipc_id)}) — confiança {ipc_conf:.0%}")
+    if pat is not None and pat_conf is not None:
+        parts.append(
+            f"Patenteabilidade: {'sim' if pat else 'NÃO'} (confiança {pat_conf:.0%})"
+        )
+    return " · ".join(parts)
+
+
+def is_trained_on_heuristic() -> bool:
+    if _meta_sbert.get("using_heuristic_groundtruth"):
+        return True
+    if _meta_tfidf.get("using_heuristic_groundtruth"):
+        return True
+    return False
+
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
+    """Status detalhado. O backend Go consulta isso pra exibir o badge correto."""
     return {
         "status": "ok",
-        "has_sbert": _sbert_model is not None,
-        "has_patentability": _clf_pat is not None,
-        "has_ipc": _clf_ipc is not None,
-        "has_tfidf_baseline": _tfidf is not None,
-        "metadata": _metadata,
+        "has_sbert":          _sbert_model is not None,
+        "has_sbert_pat":      _clf_sbert_pat is not None,
+        "has_sbert_ipc":      _clf_sbert_ipc is not None,
+        "has_tfidf_baseline": _tfidf_vec is not None and _clf_rf_ipc is not None,
+        "has_rf_pat":         _clf_rf_pat is not None,
+        "trained_on_heuristic": is_trained_on_heuristic(),
+        "warning": (
+            "Modelos treinados contra heurística v2 — para defesa acadêmica "
+            "completa, rode Fase 1 com LLM e re-treine Fases 3/4."
+            if is_trained_on_heuristic() else None
+        ),
+        "metadata_tfidf": _meta_tfidf,
+        "metadata_sbert": _meta_sbert,
     }
+
 
 @app.get("/model-info")
 def model_info():
-    return _metadata or {"warning": "no model loaded yet — run training scripts"}
+    return {
+        "tfidf": _meta_tfidf or {"warning": "no Fase 3 metadata"},
+        "sbert": _meta_sbert or {"warning": "no Fase 4 metadata"},
+    }
+
 
 @app.post("/classify", response_model=ClassifyResponse)
 def classify(req: ClassifyRequest):
-    """Classifica via Sentence-BERT (preferido) ou baseline TF-IDF."""
-    if not req.text.strip():
-        raise HTTPException(400, "Empty text")
+    """Modelo preferido — SBERT > TF-IDF como fallback."""
+    text = build_text(req)
+    if not text:
+        raise HTTPException(400, "Empty text/title")
 
-    # Tenta SBERT primeiro
-    if _sbert_model is not None and _clf_ipc is not None:
-        emb = _sbert_model.encode([req.text], convert_to_numpy=True)
-        ipc_id = int(_clf_ipc.predict(emb)[0])
-        ipc_conf = float(np.max(_clf_ipc.predict_proba(emb)))
+    out = predict_sbert(text) or predict_tfidf(text)
+    if out is None:
+        raise HTTPException(503, "No model trained yet. Run training/ scripts.")
+    return out
 
-        pat, pat_conf = None, None
-        if _clf_pat is not None:
-            pat = bool(_clf_pat.predict(emb)[0])
-            pat_conf = float(np.max(_clf_pat.predict_proba(emb)))
-
-        return ClassifyResponse(
-            text_received=req.text[:200],
-            predicted_category_id=ipc_id,
-            patentable=pat,
-            patentable_confidence=pat_conf,
-            ipc_confidence=ipc_conf,
-            method="sentence_bert_v1",
-        )
-
-    # Fallback TF-IDF
-    if _tfidf is not None and _rf_ipc is not None:
-        X = _tfidf.transform([req.text])
-        ipc_id = int(_rf_ipc.predict(X)[0])
-        ipc_conf = float(np.max(_rf_ipc.predict_proba(X)))
-        pat, pat_conf = None, None
-        if _rf_pat is not None:
-            pat = bool(_rf_pat.predict(X)[0])
-            pat_conf = float(np.max(_rf_pat.predict_proba(X)))
-        return ClassifyResponse(
-            text_received=req.text[:200],
-            predicted_category_id=ipc_id,
-            patentable=pat,
-            patentable_confidence=pat_conf,
-            ipc_confidence=ipc_conf,
-            method="tfidf_random_forest_v1",
-        )
-
-    raise HTTPException(503, "No model trained yet. Run training scripts first.")
 
 @app.post("/classify-baseline", response_model=ClassifyResponse)
 def classify_baseline(req: ClassifyRequest):
-    """Força TF-IDF (pra comparar com SBERT)."""
-    if _tfidf is None or _rf_ipc is None:
-        raise HTTPException(503, "Baseline not trained")
+    """Força TF-IDF (Fase 3)."""
+    text = build_text(req)
+    if not text:
+        raise HTTPException(400, "Empty text/title")
+    out = predict_tfidf(text)
+    if out is None:
+        raise HTTPException(503, "TF-IDF baseline not trained")
+    return out
 
-    X = _tfidf.transform([req.text])
-    ipc_id = int(_rf_ipc.predict(X)[0])
-    ipc_conf = float(np.max(_rf_ipc.predict_proba(X)))
-    pat, pat_conf = None, None
-    if _rf_pat is not None:
-        pat = bool(_rf_pat.predict(X)[0])
-        pat_conf = float(np.max(_rf_pat.predict_proba(X)))
-    return ClassifyResponse(
-        text_received=req.text[:200],
-        predicted_category_id=ipc_id,
-        patentable=pat,
-        patentable_confidence=pat_conf,
-        ipc_confidence=ipc_conf,
-        method="tfidf_random_forest_v1",
+
+@app.post("/classify-sbert", response_model=ClassifyResponse)
+def classify_sbert(req: ClassifyRequest):
+    """Força SBERT (Fase 4)."""
+    text = build_text(req)
+    if not text:
+        raise HTTPException(400, "Empty text/title")
+    out = predict_sbert(text)
+    if out is None:
+        raise HTTPException(503, "SBERT model not trained")
+    return out
+
+
+@app.post("/compare", response_model=CompareResponse)
+def compare(req: ClassifyRequest):
+    """Roda os 2 modelos e mostra agreement. Útil pra inspeção / dashboard."""
+    text = build_text(req)
+    if not text:
+        raise HTTPException(400, "Empty text/title")
+
+    sbert = predict_sbert(text)
+    tfidf = predict_tfidf(text)
+    agreement = {
+        "ipc_agree": (sbert and tfidf and
+                      sbert.predicted_category_id == tfidf.predicted_category_id),
+        "patentable_agree": (sbert and tfidf and
+                             sbert.patentable == tfidf.patentable),
+    }
+    return CompareResponse(
+        text_received=text[:200],
+        sbert=sbert,
+        tfidf=tfidf,
+        agreement=agreement,
     )

@@ -23,6 +23,7 @@ import (
 
 	"github.com/LeoPani/argos/backend/internal/ai"
 	"github.com/LeoPani/argos/backend/internal/ai/bert"
+	"github.com/LeoPani/argos/backend/internal/ai/groqclassifier"
 	"github.com/LeoPani/argos/backend/internal/ai/llm"
 	"github.com/LeoPani/argos/backend/internal/config"
 	"github.com/LeoPani/argos/backend/internal/platform/database"
@@ -98,7 +99,14 @@ func run() error {
 	ufopRepo := pg.NewUFOPRepo(db)
 	oaiClient := ufop.NewOAIClient(log)
 	portalScraper := ufop.NewPortalScraper(log)
-	analyzer := ufop.NewAnalyzer(aiSvc)
+	analyzer := ufop.NewAnalyzer(aiSvc).WithLogger(log)
+	if groqKey := os.Getenv("GROQ_API_KEY"); groqKey != "" {
+		gc := groqclassifier.New(groqclassifier.Config{APIKey: groqKey})
+		if gc != nil {
+			analyzer = analyzer.WithGroq(gc)
+			log.Info("groq classifier enabled", "model", gc.Model())
+		}
+	}
 	ufopSvc := service.NewUFOPService(ufopRepo, publicationRepo, oaiClient, portalScraper, analyzer, log)
 
 	portfolioSvc := service.NewPortfolioService(patentRepo, trademarkRepo, ufopRepo)
@@ -137,6 +145,10 @@ func run() error {
 
 	ttTemplateSvc := service.NewTTTemplateService(db)
 
+	semanticSearchSvc := service.NewSemanticSearchService(db)
+
+	inpiPubSvc := service.NewINPIPublicationService(db)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -162,6 +174,9 @@ func run() error {
 		CitationNetworkService: citationNetSvc,
 		CalendarService:        calendarSvc,
 		TTTemplateService:      ttTemplateSvc,
+		SemanticSearchService:  semanticSearchSvc,
+		INPIPublicationService: inpiPubSvc,
+		AIBertURL:              cfg.AIBertURL,
 	})
 
 	// --- HTTP server ---

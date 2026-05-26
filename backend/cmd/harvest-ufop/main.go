@@ -24,6 +24,7 @@ import (
 
 	"github.com/LeoPani/argos/backend/internal/ai"
 	"github.com/LeoPani/argos/backend/internal/ai/bert"
+	"github.com/LeoPani/argos/backend/internal/ai/groqclassifier"
 	"github.com/LeoPani/argos/backend/internal/ai/llm"
 	"github.com/LeoPani/argos/backend/internal/config"
 	"github.com/LeoPani/argos/backend/internal/platform/database"
@@ -47,7 +48,7 @@ func run() error {
 	}
 	log := logger.New(logger.Config{Level: cfg.LogLevel, Format: cfg.LogFormat})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
 
 	db, err := database.New(ctx, database.Config{
@@ -77,7 +78,14 @@ func run() error {
 
 	oaiClient   := ufop.NewOAIClient(log)
 	portalScrap := ufop.NewPortalScraper(log)
-	analyzer    := ufop.NewAnalyzer(aiSvc)
+	analyzer    := ufop.NewAnalyzer(aiSvc).WithLogger(log)
+	if groqKey := os.Getenv("GROQ_API_KEY"); groqKey != "" {
+		gc := groqclassifier.New(groqclassifier.Config{APIKey: groqKey})
+		if gc != nil {
+			analyzer = analyzer.WithGroq(gc)
+			log.Info("groq classifier enabled", "model", gc.Model())
+		}
+	}
 	svc := service.NewUFOPService(ufopRepo, pubRepo, oaiClient, portalScrap, analyzer, log)
 
 	// Parse args

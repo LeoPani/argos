@@ -30,6 +30,9 @@ type Deps struct {
 	CitationNetworkService *service.CitationNetworkService
 	CalendarService        *service.CalendarService
 	TTTemplateService      *service.TTTemplateService
+	SemanticSearchService  *service.SemanticSearchService
+	INPIPublicationService *service.INPIPublicationService
+	AIBertURL              string
 }
 
 // NewRouter assembles the full HTTP handler chain.
@@ -165,6 +168,10 @@ func NewRouter(deps Deps) http.Handler {
 		mux.HandleFunc("GET /api/v1/tt-template/from-ufop/{oppID}", tplH.FromUFOP)
 	}
 
+	// ── System metadata (transparência) ───────────────────────────────────
+	sysH := NewSystemHandler(deps.AIBertURL)
+	mux.HandleFunc("GET /api/v1/system/analysis-mode", sysH.AnalysisMode)
+
 	// ── Smart Filing Assistant ────────────────────────────────────────────
 	if deps.SmartFilingService != nil {
 		sf := NewSmartFilingHandler(deps.SmartFilingService)
@@ -182,6 +189,19 @@ func NewRouter(deps Deps) http.Handler {
 	if deps.SearchService != nil {
 		s := NewSearchHandler(deps.SearchService)
 		mux.HandleFunc("GET /api/v1/search", s.Search)
+	}
+
+	// ── Semantic search (TF-IDF + cosine, sem deps externas) ─────────────
+	if deps.SemanticSearchService != nil {
+		ss := NewSemanticSearchHandler(deps.SemanticSearchService)
+		mux.HandleFunc("GET /api/v1/semantic-search", ss.Search)
+	}
+
+	// ── INPI publications (extraído das RPIs via Python scraper) ─────────
+	if deps.INPIPublicationService != nil {
+		ip := NewINPIPublicationHandler(deps.INPIPublicationService)
+		mux.HandleFunc("GET /api/v1/inpi-publications/stats", ip.Stats)
+		mux.HandleFunc("GET /api/v1/inpi-publications/ufop",  ip.ListUFOP)
 	}
 
 	// ── Chat threads + messages ───────────────────────────────────────────

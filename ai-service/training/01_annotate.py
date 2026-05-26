@@ -17,10 +17,20 @@ Validação metodológica:
 
 Output: ai-service/training/data/annotations.jsonl (uma linha por trabalho)
 
+Suporta dois providers (detectados automaticamente):
+  - ANTHROPIC_API_KEY  → Claude Sonnet 4.6   (pago, ~US$1 pras 261)
+  - GROQ_API_KEY       → Llama 3.3 70B       (free 14400 req/dia)
+
 Uso:
+    # Opção A — Groq (free):
+    export GROQ_API_KEY=gsk_...
+    pip install groq psycopg2-binary tqdm
+
+    # Opção B — Claude (pago):
     export ANTHROPIC_API_KEY=sk-ant-...
-    cd ai-service
     pip install anthropic psycopg2-binary tqdm
+
+    cd ai-service
     python training/01_annotate.py             # all
     python training/01_annotate.py --limit 50  # primeiros 50 (teste)
     python training/01_annotate.py --resume    # continua de onde parou
@@ -34,20 +44,19 @@ import time
 from pathlib import Path
 
 try:
-    import anthropic
     import psycopg2
     from tqdm import tqdm
 except ImportError as e:
-    sys.exit(f"Faltam dependências: pip install anthropic psycopg2-binary tqdm  ({e})")
+    sys.exit(f"Faltam dependências: pip install psycopg2-binary tqdm  ({e})")
 
 # ─── Config ─────────────────────────────────────────────────────────────────
 
-OUTPUT_PATH = Path(__file__).parent / "data" / "annotations.jsonl"
-DB_URL      = os.environ.get("DATABASE_URL",
+OUTPUT_PATH   = Path(__file__).parent / "data" / "annotations.jsonl"
+DB_URL        = os.environ.get("DATABASE_URL",
     "postgres://argos:argos_dev@localhost:5432/argos")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
-MODEL       = "claude-sonnet-4-6"
-SLEEP_S     = 0.5  # respeitar rate limit
+GROQ_KEY      = os.environ.get("GROQ_API_KEY")
+SLEEP_S       = 0.5  # respeitar rate limit
 
 # ─── Prompt template ────────────────────────────────────────────────────────
 
@@ -119,44 +128,84 @@ def load_opportunities(limit: int | None, skip_ids: set[int]) -> list[dict]:
     cur.close(); conn.close()
     return rows
 
-def annotate_one(client: anthropic.Anthropic, opp: dict) -> dict:
-    """Envia ao Claude e parseia o JSON de volta."""
-    msg = client.messages.create(
-        model=MODEL,
-        max_tokens=512,
-        system=SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": USER_TEMPLATE.format(
-                title=opp["title"][:300],
-                department=opp.get("department", "UFOP"),
-                abstract=opp.get("abstract", "")[:3000],
-            ),
-        }],
+def build_user_prompt(opp: dict) -> str:
+    return USER_TEMPLATE.format(
+        title=opp["title"][:300],
+        department=opp.get("department", "UFOP"),
+        abstract=opp.get("abstract", "")[:3000],
     )
-    text = msg.content[0].text.strip()
-    # Limpa code fence se Claude botou
+
+def clean_json_response(text: str) -> str:
+    """Remove code fences que LLMs gostam de adicionar mesmo quando pedimos JSON puro."""
+    text = text.strip()
     if text.startswith("```"):
         text = text.strip("`").split("\n", 1)[1].rsplit("```", 1)[0]
     if text.startswith("json"):
         text = text[4:].strip()
-    parsed = json.loads(text)
+    return text
+
+def annotate_with_anthropic(client, opp: dict, model: str) -> dict:
+    msg = client.messages.create(
+        model=model, max_tokens=512, system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": build_user_prompt(opp)}],
+    )
+    return _finalize(clean_json_response(msg.content[0].text), opp)
+
+def annotate_with_groq(client, opp: dict, model: str) -> dict:
+    msg = client.chat.completions.create(
+        model=model, max_tokens=512, temperature=0.0,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": build_user_prompt(opp)},
+        ],
+    )
+    return _finalize(clean_json_response(msg.choices[0].message.content), opp)
+
+def _finalize(raw_json: str, opp: dict) -> dict:
+    parsed = json.loads(raw_json)
     parsed["opportunity_id"] = opp["id"]
     parsed["title"] = opp["title"]
     parsed["department"] = opp.get("department", "")
     parsed["heuristic_level"] = opp["level"]
     return parsed
 
+def pick_provider(force: str | None) -> tuple[str, str, object, callable]:
+    """Decide qual provider usar e retorna (name, model, client, annotate_fn)."""
+    want = (force or "auto").lower()
+
+    if want in ("auto", "groq") and GROQ_KEY:
+        try:
+            from groq import Groq
+        except ImportError:
+            sys.exit("GROQ_API_KEY setado mas groq não instalado: pip install groq")
+        model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        return "groq", model, Groq(api_key=GROQ_KEY), annotate_with_groq
+
+    if want in ("auto", "anthropic") and ANTHROPIC_KEY:
+        try:
+            import anthropic
+        except ImportError:
+            sys.exit("ANTHROPIC_API_KEY setado mas anthropic não instalado: pip install anthropic")
+        model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+        return "anthropic", model, anthropic.Anthropic(api_key=ANTHROPIC_KEY), annotate_with_anthropic
+
+    sys.exit(
+        "Nenhuma API key configurada. Exporte uma:\n"
+        "  export GROQ_API_KEY=gsk_...        # free 14400 req/dia (recomendado)\n"
+        "  export ANTHROPIC_API_KEY=sk-ant-... # pago (~US$1 pra 261)\n"
+    )
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--provider", choices=["auto", "groq", "anthropic"], default="auto",
+                        help="Força um provider específico (default: auto-detecta)")
     args = parser.parse_args()
 
-    if not ANTHROPIC_KEY:
-        print("ERRO: ANTHROPIC_API_KEY não está no ambiente.\n"
-              "Setar com: export ANTHROPIC_API_KEY=sk-ant-...")
-        return 1
+    provider, model, client, annotate_fn = pick_provider(args.provider)
+    print(f"Provider: {provider} · model: {model}")
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -173,14 +222,15 @@ def main() -> int:
     if not opps:
         print("Nada para anotar.")
         return 0
-    print(f"Anotando {len(opps)} oportunidades via {MODEL}...")
+    print(f"Anotando {len(opps)} oportunidades...")
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     ok, err = 0, 0
     with OUTPUT_PATH.open("a") as f:
         for opp in tqdm(opps, desc="Annotating"):
             try:
-                ann = annotate_one(client, opp)
+                ann = annotate_fn(client, opp, model)
+                ann["_provider"] = provider
+                ann["_model"]    = model
                 f.write(json.dumps(ann, ensure_ascii=False) + "\n")
                 f.flush()
                 ok += 1

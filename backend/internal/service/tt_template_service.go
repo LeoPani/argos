@@ -80,17 +80,31 @@ func (s *TTTemplateService) FromUFOPOpportunity(ctx context.Context, oppID int64
 		title, abstract, dept, ipcSug, url, authorsRaw string
 		ipcCat                                          int
 		piScore                                         float64
+		isPatentable                                    sql.NullBool
+		rationale                                       sql.NullString
 	)
 	err := s.db.QueryRowContext(ctx, `
 		SELECT title, abstract, department, ipc_suggestion, COALESCE(url, ''),
-		       array_to_string(authors, '||'), ipc_category, pi_score
+		       array_to_string(authors, '||'), ipc_category, pi_score,
+		       is_patentable, rationale
 		FROM ufop_opportunities WHERE id = $1`, oppID).
-		Scan(&title, &abstract, &dept, &ipcSug, &url, &authorsRaw, &ipcCat, &piScore)
+		Scan(&title, &abstract, &dept, &ipcSug, &url, &authorsRaw, &ipcCat, &piScore,
+			&isPatentable, &rationale)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("oportunidade id=%d não encontrada", oppID)
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	// Bloqueia geração para trabalhos não-patenteáveis (Art. 10 LPI).
+	// Contrato TT pressupõe patente — não faz sentido para trabalho jurídico.
+	if isPatentable.Valid && !isPatentable.Bool {
+		msg := "trabalho não-patenteável"
+		if rationale.Valid {
+			msg = rationale.String
+		}
+		return nil, fmt.Errorf("não é possível gerar contrato TT: %s", msg)
 	}
 
 	authors := splitAndTrim(authorsRaw, "||")

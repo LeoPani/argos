@@ -22,7 +22,8 @@ const selectUFOPColumns = `
 	abstract, url, published_at,
 	ipc_suggestion, ipc_category, opportunity_level,
 	similarity_pct, pi_score, ai_analysis,
-	status, publication_id, created_at, updated_at`
+	status, publication_id, created_at, updated_at,
+	is_patentable, rationale, classifier_version, confidence`
 
 // Upsert inserts or updates a UFOP opportunity (keyed on source+external_id).
 func (r *UFOPRepo) Upsert(ctx context.Context, o *domain.UFOPOpportunity) error {
@@ -32,18 +33,24 @@ func (r *UFOPRepo) Upsert(ctx context.Context, o *domain.UFOPOpportunity) error 
 			abstract, url, published_at,
 			ipc_suggestion, ipc_category, opportunity_level,
 			similarity_pct, pi_score, ai_analysis,
-			status, publication_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+			status, publication_id,
+			is_patentable, rationale, classifier_version, confidence
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		ON CONFLICT (source, external_id) DO UPDATE SET
-			title             = EXCLUDED.title,
-			abstract          = EXCLUDED.abstract,
-			ipc_suggestion    = EXCLUDED.ipc_suggestion,
-			ipc_category      = EXCLUDED.ipc_category,
-			opportunity_level = EXCLUDED.opportunity_level,
-			similarity_pct    = EXCLUDED.similarity_pct,
-			pi_score          = EXCLUDED.pi_score,
-			ai_analysis       = EXCLUDED.ai_analysis,
-			updated_at        = NOW()
+			title              = EXCLUDED.title,
+			abstract           = EXCLUDED.abstract,
+			department         = EXCLUDED.department,
+			ipc_suggestion     = EXCLUDED.ipc_suggestion,
+			ipc_category       = EXCLUDED.ipc_category,
+			opportunity_level  = EXCLUDED.opportunity_level,
+			similarity_pct     = EXCLUDED.similarity_pct,
+			pi_score           = EXCLUDED.pi_score,
+			ai_analysis        = EXCLUDED.ai_analysis,
+			is_patentable      = EXCLUDED.is_patentable,
+			rationale          = EXCLUDED.rationale,
+			classifier_version = EXCLUDED.classifier_version,
+			confidence         = EXCLUDED.confidence,
+			updated_at         = NOW()
 		RETURNING id, created_at, updated_at`
 
 	if o.Authors == nil {
@@ -64,6 +71,23 @@ func (r *UFOPRepo) Upsert(ctx context.Context, o *domain.UFOPOpportunity) error 
 		status = domain.UFOPStatusNew
 	}
 
+	var patentable sql.NullBool
+	if o.IsPatentable != nil {
+		patentable = sql.NullBool{Bool: *o.IsPatentable, Valid: true}
+	}
+	var rationale sql.NullString
+	if o.Rationale != "" {
+		rationale = sql.NullString{String: o.Rationale, Valid: true}
+	}
+	var classifier sql.NullString
+	if o.ClassifierVersion != "" {
+		classifier = sql.NullString{String: o.ClassifierVersion, Valid: true}
+	}
+	var confidence sql.NullFloat64
+	if o.Confidence > 0 {
+		confidence = sql.NullFloat64{Float64: o.Confidence, Valid: true}
+	}
+
 	err := r.db.QueryRowContext(ctx, q,
 		string(o.Source), o.ExternalID, o.Title,
 		pq.Array(o.Authors), o.Department,
@@ -71,6 +95,7 @@ func (r *UFOPRepo) Upsert(ctx context.Context, o *domain.UFOPOpportunity) error 
 		o.IPCSuggestion, ipcCat, string(level),
 		o.SimilarityPct, o.PIScore, o.AIAnalysis,
 		string(status), o.PublicationID,
+		patentable, rationale, classifier, confidence,
 	).Scan(&o.ID, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert ufop opportunity %q: %w", o.ExternalID, err)
@@ -136,6 +161,9 @@ type ufopRow interface{ Scan(dest ...any) error }
 func scanUFOP(s ufopRow) (*domain.UFOPOpportunity, error) {
 	var o domain.UFOPOpportunity
 	var ipcCat sql.NullInt16
+	var patentable sql.NullBool
+	var rationale, classifier sql.NullString
+	var confidence sql.NullFloat64
 	err := s.Scan(
 		&o.ID, &o.Source, &o.ExternalID, &o.Title,
 		pq.Array(&o.Authors), &o.Department,
@@ -143,9 +171,23 @@ func scanUFOP(s ufopRow) (*domain.UFOPOpportunity, error) {
 		&o.IPCSuggestion, &ipcCat, &o.Level,
 		&o.SimilarityPct, &o.PIScore, &o.AIAnalysis,
 		&o.Status, &o.PublicationID, &o.CreatedAt, &o.UpdatedAt,
+		&patentable, &rationale, &classifier, &confidence,
 	)
 	if ipcCat.Valid {
 		o.IPCCategory = domain.IPCCategory(ipcCat.Int16)
+	}
+	if patentable.Valid {
+		v := patentable.Bool
+		o.IsPatentable = &v
+	}
+	if rationale.Valid {
+		o.Rationale = rationale.String
+	}
+	if classifier.Valid {
+		o.ClassifierVersion = classifier.String
+	}
+	if confidence.Valid {
+		o.Confidence = confidence.Float64
 	}
 	return &o, err
 }
@@ -175,6 +217,14 @@ func buildUFOPWhere(f domain.UFOPFilter) (string, []any) {
 			fmt.Sprintf("(title ILIKE $%d OR abstract ILIKE $%d)", n, n))
 		args = append(args, "%"+f.Search+"%")
 		n++
+	}
+	if f.DepartmentLike != "" {
+		add("department ILIKE $%d", "%"+f.DepartmentLike+"%")
+	}
+	if f.PatentableOnly {
+		// COALESCE: opps legadas (pre-migration 0014) com is_patentable NULL
+		// são consideradas patenteáveis por padrão.
+		clauses = append(clauses, "COALESCE(is_patentable, true) = true")
 	}
 	if len(clauses) == 0 {
 		return "", nil

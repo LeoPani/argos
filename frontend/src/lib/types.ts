@@ -296,6 +296,12 @@ export interface UFOPOpportunity {
   pi_score: number;
   ai_analysis: string;
 
+  // Classifier metadata (migration 0014)
+  is_patentable?: boolean;       // null = inconcluso; false = Art. 10 LPI
+  rationale?: string;
+  classifier_version?: string;   // "heuristic-v2" | "groq-llama-3.3-70b-versatile"
+  confidence?: number;           // 0-1
+
   // Lifecycle
   status: UFOPStatus;
   publication_id: number | null;
@@ -653,6 +659,23 @@ export interface TTTemplate {
   methodology: string;
 }
 
+// ─── System metadata (transparência) ──────────────────────────────────────────
+
+export interface AnalysisModeResponse {
+  mode: "trained_sbert" | "bert_fine_tuned" | "heuristic";
+  description: string;
+  bert_online: boolean;
+  bert_health?: Record<string, unknown>;
+  lens_token_set: boolean;
+  anthropic_key_set: boolean;
+  groq_key_set: boolean;
+  annotator_ready: boolean;
+  annotator_provider?: string;
+  data_sources: Record<string, string>;
+  limitations?: string[];
+  next_steps?: string[];
+}
+
 // ─── Calendar NIT-UFOP ───────────────────────────────────────────────────────
 
 export interface CalendarEvent {
@@ -692,6 +715,25 @@ export interface SearchResponse {
   query: string;
   total: number;
   hits: SearchHit[];
+}
+
+// ─── Semantic search (TF-IDF + cosine, sem deps externas) ──────────────────
+
+export interface SemanticHit {
+  kind: "ufop_opp" | "patent";
+  id: number;
+  title: string;
+  snippet: string;
+  score: number;
+  url: string;
+}
+
+export interface SemanticSearchResponse {
+  query: string;
+  method: string;
+  doc_count: number;
+  built_at: string;
+  hits: SemanticHit[];
 }
 
 // ─── Chat threads ────────────────────────────────────────────────────────────

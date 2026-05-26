@@ -9,6 +9,8 @@ import { useStats, usePortfolio } from "@/lib/hooks";
 import { formatDate, formatBRL, IPC_COLORS } from "@/lib/utils";
 import { Skeleton, SkeletonKPI } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { AnalysisModeBadge } from "@/components/ui/analysis-mode-badge";
+import { DataStateBanner } from "@/components/ui/data-state-banner";
 import {
   PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -92,15 +94,17 @@ export default function DashboardPage() {
 
   return (
     <div className="p-8 space-y-6">
+      <DataStateBanner />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">BI &amp; Analytics</h1>
           <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-            Visão geral do sistema — dados INPI + classificação IA
+            Visão geral do portfólio UFOP (OAI-PMH + Google Patents). Estado das fontes no banner abaixo.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <AnalysisModeBadge />
           {isLive ? (
             <span className="text-xs text-emerald-400 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />

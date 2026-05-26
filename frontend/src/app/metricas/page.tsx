@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { SkeletonKPI } from "@/components/ui/skeleton";
 import { MetricTooltip } from "@/components/ui/metric-tooltip";
 import { useToast } from "@/components/ui/toast";
+import { AnalysisModeBadge } from "@/components/ui/analysis-mode-badge";
 import { useMetrics, useDepartments, useKnowledgeStock, useRoyaltyForecast } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { formatBRL } from "@/lib/utils";
@@ -68,6 +69,9 @@ export default function MetricsPage() {
   // Score gauge data
   const gaugeData = [{ name: "score", value: hs.composite_score, fill: scoreColor(hs.composite_score) }];
 
+  // Amostra pequena: n < 30 (regra clássica de inferência) → métricas instáveis.
+  const smallSample = hs.patents < 30;
+
   // Funnel as bars
   const funnelData = [
     { stage: "Disclosures",       value: ttf.disclosures },
@@ -97,7 +101,8 @@ export default function MetricsPage() {
             Indicadores AUTM · Hall-Jaffe-Trajtenberg · Etzkowitz · Lanjouw-Schankerman
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <AnalysisModeBadge />
           <Link href="/smart-filing">
             <Button variant="secondary" size="sm">
               <Sparkles size={13} /> Smart Filing
@@ -132,6 +137,18 @@ export default function MetricsPage() {
             Escopo: {hs.scope} · {hs.patents} patentes · {hs.inventors} inventores
           </span>
         </CardHeader>
+
+        {smallSample && (
+          <div className="mb-3 px-3 py-2 rounded text-xs flex items-start gap-2"
+            style={{ background: "#fbbf2410", border: "1px solid #fbbf2440", color: "#fbbf24" }}>
+            <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              Amostra pequena (<strong>{hs.patents} &lt; 30</strong>). Métricas AUTM/HJT/Triple Helix
+              são estatisticamente instáveis com este n — ingestão completa via Google Patents (261
+              UFOP) ou Lens.org aumenta a confiabilidade.
+            </span>
+          </div>
+        )}
 
         <div className="grid grid-cols-6 gap-4 items-center">
           {/* Gauge */}

@@ -126,8 +126,11 @@ func (s *StatsService) counts(ctx context.Context) (StatsCounts, error) {
 		{`SELECT COUNT(*) FROM trademarks WHERE status = 'granted'`, &c.TrademarksActive},
 		{`SELECT COUNT(*) FROM disputes`, &c.Disputes},
 		{`SELECT COUNT(*) FROM disputes WHERE status IN ('open','in_analysis','mediation','urgent')`, &c.DisputesOpen},
-		{`SELECT COUNT(*) FROM ufop_opportunities`, &c.UFOPOpportunities},
-		{`SELECT COUNT(*) FROM ufop_opportunities WHERE opportunity_level = 'high'`, &c.UFOPHigh},
+		// Conta APENAS patenteáveis (Art. 8 LPI) — exclui rejeitadas por Art. 10
+		// (Direito, Letras, etc). is_patentable IS NULL é tratado como
+		// patenteável (legado antes da migration 0014).
+		{`SELECT COUNT(*) FROM ufop_opportunities WHERE COALESCE(is_patentable, true)`, &c.UFOPOpportunities},
+		{`SELECT COUNT(*) FROM ufop_opportunities WHERE opportunity_level = 'high' AND COALESCE(is_patentable, true)`, &c.UFOPHigh},
 	}
 
 	for _, q := range queries {
@@ -220,7 +223,9 @@ func (s *StatsService) recentActivity(ctx context.Context) ([]ActivityItem, erro
 		 FROM disputes      ORDER BY created_at DESC LIMIT 10)
 		UNION ALL
 		(SELECT 'ufop'      AS kind, id, external_id,        title, status::text, created_at
-		 FROM ufop_opportunities ORDER BY created_at DESC LIMIT 10)
+		 FROM ufop_opportunities
+		 WHERE COALESCE(is_patentable, true)
+		 ORDER BY created_at DESC LIMIT 10)
 		ORDER BY created_at DESC LIMIT 15`
 
 	rows, err := s.db.QueryContext(ctx, q)

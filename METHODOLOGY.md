@@ -24,7 +24,7 @@ mas insuficiente como contribuição científica.
 
 O pipeline `ai-service/training/` implementa:
 
-1. **Anotação automática** via Claude (LLM-as-annotator validado por Honovich 2022)
+1. **Anotação automática** via Claude **ou Llama 3.3 70B** (LLM-as-annotator validado por Honovich 2022)
 2. **Modelo supervisionado** treinado nessas anotações
 3. **Embeddings semânticos** via Sentence-BERT multilingual
 4. **Métricas reprodutíveis** (precision, recall, F1, confusion matrix)
@@ -38,8 +38,18 @@ O pipeline `ai-service/training/` implementa:
 
 **Problema:** o NIT-UFOP não tem dataset rotulado de "patenteável vs não" pra treinar.
 
-**Solução:** usar um LLM forte (Claude) como **oracle**, anotando trabalhos
-acadêmicos automaticamente.
+**Solução:** usar um LLM forte como **oracle**, anotando trabalhos
+acadêmicos automaticamente. O pipeline suporta dois providers (selecionados
+por variável de ambiente, sem mudança de código):
+
+| Provider  | Modelo                  | Custo                   | Quando usar                            |
+|-----------|-------------------------|-------------------------|----------------------------------------|
+| Anthropic | Claude Sonnet 4.6       | ~US$1 pras 261 opps     | Máxima qualidade                       |
+| Groq      | Llama 3.3 70B versatile | Free (14400 req/dia)    | Default — sem barreira de billing      |
+
+Estudos comparativos mostram que Llama 3.x 70B atinge >90% da qualidade do
+Claude/GPT-4 em tarefas de classificação técnica (cf. Llama 3 Technical Report,
+Meta AI 2024, e Open LLM Leaderboard).
 
 **Papers validando essa abordagem:**
 
@@ -57,7 +67,7 @@ acadêmicos automaticamente.
    Crowdsourced Annotators.* NAACL 2024. — Confirma o uso de LLMs como anotadores
    em domínios técnicos.
 
-**Custo:** ~$1.30 por dataset completo (261 trabalhos × ~$0.005).
+**Custo:** zero com Groq (free tier) ou ~$1.30 com Claude.
 **Vantagem:** reprodutível, escalável, sem viés de anotador humano cansado.
 
 ### Sentence-BERT (substitui Jaccard de bigrams)
@@ -147,27 +157,84 @@ OUTPUT: annotations.jsonl, uma linha por trabalho:
 
 ### Fase 3 — Baseline TF-IDF + Random Forest (`03_train_baseline.py`)
 
-- TF-IDF: 3000 features, n-gramas 1-2, min_df=2
+- TF-IDF: 5000 features, n-gramas 1-2, min_df=3, max_df=0.9, sublinear_tf
 - RandomForest: 200 árvores, max_depth=20, class_weight=balanced
 - Validação: 80/20 split + 5-fold CV
-- Saída: `models/rf_patentability.pkl`, `rf_ipc_classifier.pkl`, `tfidf_vectorizer.pkl`
+- Fonte de ground truth: **auto-detect** entre `annotations.jsonl` (LLM) e Postgres (heurística v2)
+- Saída: `models/rf_patentability.pkl`, `rf_ipc_classifier.pkl`, `tfidf_vectorizer.pkl`, `metadata.json`
+
+**Resultado real (2026-05-25, ground truth = heurística v2, n=2954):**
+
+| Métrica | Patenteabilidade (binário) | IPC (multiclass) |
+|---|---|---|
+| Accuracy | 98.1% | 86.5% |
+| Macro F1 | 0.974 | **0.310** |
+| 5-fold CV F1 | 0.986 ± 0.009 | — |
+
+Top features discriminativas: `direito`, `degeo`, `geologia`, `edtm`,
+`turismo`, `museologia`. **Modelo aprendeu exatamente os gatilhos da
+heurística.** Diagnóstico: pipeline E2E funciona. Não é validação científica
+até a Fase 1 rodar com LLM externo.
+
+**IPC inviável neste dataset:** UFOP é Eng. Minas-heavy (62.7% classe C).
+Classes B, F, H têm < 15 amostras no test → recall 0. Macro F1 0.310
+expõe o desbalanceamento. Solução futura: SMOTE oversampling ou aceitar
+que IPC só funciona pras 3 classes com massa crítica (A, C, G).
 
 ### Fase 4 — Sentence-BERT (`04_train_sentence_transformers.py`)
 
-- Embedding: paraphrase-multilingual-MiniLM-L12-v2 (384d)
+- Encoder: `paraphrase-multilingual-MiniLM-L12-v2` (384d, 50+ idiomas)
 - Patentability: LogReg + class_weight=balanced
 - IPC: RandomForest + 400 árvores
-- Salva embeddings.npy pra busca semântica posterior
+- Cache de embeddings em `models/embeddings_cache.npz` (regerar é o passo lento)
+- Saída: `models/sbert_logreg_patentability.pkl`, `sbert_rf_ipc.pkl`, `sbert_metadata.json`
+
+**Resultado real (2026-05-25, ground truth = heurística v2, n=2954):**
+
+| Métrica | TF-IDF (Fase 3) | **SBERT (Fase 4)** | Δ |
+|---|---|---|---|
+| Accuracy (binário) | 98.1% | 95.1% | −3.0pp |
+| Macro F1 (binário) | 0.974 | **0.934** | −0.040 |
+| 5-fold CV F1 | 0.986 ± 0.009 | 0.966 ± 0.008 | −0.020 |
+| Macro F1 (IPC) | 0.310 | 0.264 | −0.046 |
+
+**Achado contraintuitivo (defendável):** SBERT perdeu pro TF-IDF. Por quê?
+A heurística é keyword-based — gatilhos como `direito`, `turismo`,
+`museologia` no department disparam Art. 10 LPI. TF-IDF aprende esses
+tokens literalmente; SBERT abstrai pra semântica e perde os gatilhos.
+
+**Predição testável:** quando ground truth migrar de heurística pra LLM
+(Fase 1), SBERT deve virar o jogo — porque o LLM rotula por semântica,
+não por keyword. Esse resultado vira evidência empírica do papel da
+qualidade do oráculo no benchmark TF-IDF vs SBERT.
 
 ### Fase 5 — Servir + integrar (`argos_classifier.py`)
 
-FastAPI substitui `api_argos.py`:
-- `POST /classify` — usa SBERT (preferido)
-- `POST /classify-baseline` — força TF-IDF
-- Retorna IPC + patentability + confidence
+FastAPI v3 carrega os 2 modelos (TF-IDF + SBERT). Endpoints:
 
-Go `analyzer.go` continua chamando `/classify` — mudança é
-**transparente pro frontend**.
+| Endpoint | Função |
+|---|---|
+| `GET /health` | Status + flag `trained_on_heuristic: true` + warning honesto |
+| `GET /model-info` | Metadata bruta dos 2 modelos |
+| `POST /classify` | Preferido: SBERT > TF-IDF fallback |
+| `POST /classify-baseline` | Força TF-IDF (Fase 3) |
+| `POST /classify-sbert` | Força SBERT (Fase 4) |
+| `POST /compare` | Roda os 2 e mostra agreement (`ipc_agree`, `patentable_agree`) |
+
+Schema do request mantém compatibilidade com o cliente Go atual
+(`{"text": "..."} → {"predicted_category_id": N}`) **e** aceita o formato
+completo `{"title", "abstract", "department"}` que espelha o
+`build_texts()` do training (evita drift de feature).
+
+**Smoke tests reais (2026-05-25):**
+
+| Input | SBERT | TF-IDF | Agree |
+|---|---|---|---|
+| "Concentração de minério de ferro por flotação reversa" / Eng Mineral | C (94%) · patenteável (100%) | C (66%) · patenteável (95%) | ✅ |
+| "Do INSS que temos ao INSS que queremos" / Direito | A (68%) · NÃO (99%) | A (90%) · NÃO (94%) | ✅ |
+
+Os dois modelos concordam: o de Eng Mineral é patenteável (Química/Metalurgia),
+o de Direito não é (Art. 10 III LPI). Substitui `api_argos.py` legacy.
 
 ---
 

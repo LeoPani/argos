@@ -9,18 +9,6 @@ import { formatDate } from "@/lib/utils";
 import type { SearchResult } from "@/lib/types";
 import { Search, Link2, Shield, Save } from "lucide-react";
 
-const mockResult: SearchResult = {
-  query: "Software de classificação automática de patentes usando inteligência artificial",
-  type: "patent",
-  risk_score: 7.2,
-  risk_label: "Alto",
-  conflicts: [
-    { number: "BR102021XXXXX", title: "Patent AI Classifier System", similarity_pct: 78, owner: "TechCorp Brasil", filing_date: "2021-03-12" },
-    { number: "BR102019YYYYY", title: "Sistema Automatizado de Análise de PI", similarity_pct: 61, owner: "Empresa Nacional S.A.", filing_date: "2019-07-04" },
-    { number: "BR102022ZZZZZ", title: "Método de categorização por aprendizado profundo", similarity_pct: 44, owner: "Startup AI Ltda", filing_date: "2022-11-30" },
-  ],
-};
-
 type SearchType = "patent" | "trademark" | "both";
 
 export default function ConsultasPage() {
@@ -28,39 +16,38 @@ export default function ConsultasPage() {
   const [type, setType] = useState<SearchType>("patent");
   const [result, setResult] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSearch() {
     if (!query.trim()) return;
     setLoading(true);
     setResult(null);
+    setError(null);
     try {
       const res = await fetch(
         `/api/prior-art?q=${encodeURIComponent(query)}&kind=${type}`
       );
-      if (res.ok) {
-        const data = await res.json();
-        // Map Go response to SearchResult shape
-        const hits = (data.Hits ?? data.hits ?? []).map((h: { Number?: string; number?: string; Title?: string; title?: string; Owner?: string; owner?: string; FilingDate?: string; filing_date?: string; SimilarityPct?: number; similarity_pct?: number }) => ({
-          number: h.Number ?? h.number ?? "",
-          title: h.Title ?? h.title ?? "",
-          owner: h.Owner ?? h.owner ?? "",
-          filing_date: h.FilingDate ?? h.filing_date ?? "",
-          similarity_pct: h.SimilarityPct ?? h.similarity_pct ?? 0,
-        }));
-        const score = data.RiskScore ?? data.risk_score ?? 0;
-        setResult({
-          query,
-          type,
-          risk_score: score,
-          risk_label: score <= 3 ? "Baixo" : score <= 6 ? "Médio" : score <= 8 ? "Alto" : "Muito Alto",
-          conflicts: hits,
-        });
-      } else {
-        // Fallback to mock if backend offline
-        setResult({ ...mockResult, query, type });
+      if (!res.ok) {
+        setError(`Backend retornou ${res.status}. Verifique se o argos-api está rodando.`);
+        return;
       }
-    } catch {
-      setResult({ ...mockResult, query, type });
+      const data = await res.json();
+      const hits = (data.Hits ?? data.hits ?? []).map((h: { Number?: string; number?: string; Title?: string; title?: string; Owner?: string; owner?: string; FilingDate?: string; filing_date?: string; SimilarityPct?: number; similarity_pct?: number }) => ({
+        number: h.Number ?? h.number ?? "",
+        title: h.Title ?? h.title ?? "",
+        owner: h.Owner ?? h.owner ?? "",
+        filing_date: h.FilingDate ?? h.filing_date ?? "",
+        similarity_pct: h.SimilarityPct ?? h.similarity_pct ?? 0,
+      }));
+      const score = data.RiskScore ?? data.risk_score ?? 0;
+      setResult({
+        query, type,
+        risk_score: score,
+        risk_label: score <= 3 ? "Baixo" : score <= 6 ? "Médio" : score <= 8 ? "Alto" : "Muito Alto",
+        conflicts: hits,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro de rede.");
     } finally {
       setLoading(false);
     }
@@ -71,7 +58,8 @@ export default function ConsultasPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Consulta de Anterioridade</h1>
         <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-          Busca por anterioridades em patentes, marcas e publicações — com escala de risco por IA
+          Busca em patentes/marcas/publicações <strong>locais</strong> (portfolio Argos)
+          por similaridade Jaccard de bigrams. Não substitui busca oficial no INPI/Espacenet.
         </p>
       </div>
 
@@ -127,6 +115,13 @@ export default function ConsultasPage() {
           </div>
         </div>
       </Card>
+
+      {/* Error */}
+      {error && (
+        <Card style={{ borderColor: "#ef444440" }}>
+          <p className="text-sm text-red-300">⚠ {error}</p>
+        </Card>
+      )}
 
       {/* Results */}
       {result && (
