@@ -37,6 +37,7 @@ import type {
   MarketplaceResponse, CitationNetwork,
   CalendarResponse, TTTemplate,
   AnalysisModeResponse,
+  IPTimestamp, IPTimestampCreateRequest,
 } from "./types";
 
 export const api = {
@@ -275,6 +276,23 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify({ status }),
       }),
+  },
+
+  timestamps: {
+    list: (limit = 20, offset = 0) =>
+      req<{ items: IPTimestamp[]; pagination: { total: number; limit: number; offset: number } }>(
+        `/api/v1/timestamps?limit=${limit}&offset=${offset}`
+      ),
+    get: (id: number) => req<IPTimestamp>(`/api/v1/timestamps/${id}`),
+    create: (body: IPTimestampCreateRequest) =>
+      req<IPTimestamp & { canonical_content: string }>(`/api/v1/timestamps`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    verify: (id: number) =>
+      req<{ valid: boolean; recomputed_hash: string; integrity_message: string }>(
+        `/api/v1/timestamps/${id}/verify`
+      ),
   },
 };
 

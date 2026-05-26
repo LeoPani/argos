@@ -9,8 +9,9 @@ import (
 
 // Deps bundles all services the router needs.
 type Deps struct {
-	DB                *sql.DB
-	PatentService     *service.PatentService
+	DB                   *sql.DB
+	IPTimestampService   *service.IPTimestampService
+	PatentService        *service.PatentService
 	TrademarkService  *service.TrademarkService
 	DisputeService    *service.DisputeService
 	PriorArtService   *service.PriorArtService
@@ -57,6 +58,15 @@ func NewRouter(deps Deps) http.Handler {
 	// ── Health ────────────────────────────────────────────────────────────
 	health := NewHealthHandler(deps.DB)
 	mux.HandleFunc("GET /health", health.Get)
+
+	// ── IP Timestamps / Proof-of-Existence ───────────────────────────────
+	if deps.IPTimestampService != nil {
+		ts := NewIPTimestampHandler(deps.IPTimestampService)
+		mux.HandleFunc("POST /api/v1/timestamps",            ts.Create)
+		mux.HandleFunc("GET /api/v1/timestamps",             ts.List)
+		mux.HandleFunc("GET /api/v1/timestamps/{id}",        ts.GetByID)
+		mux.HandleFunc("GET /api/v1/timestamps/{id}/verify", ts.Verify)
+	}
 
 	// ── Patents (Phase 1) ─────────────────────────────────────────────────
 	patents := NewPatentHandler(deps.PatentService)

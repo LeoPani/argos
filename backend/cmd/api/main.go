@@ -149,6 +149,8 @@ func run() error {
 
 	inpiPubSvc := service.NewINPIPublicationService(db)
 
+	ipTimestampSvc := service.NewIPTimestampService(db)
+
 	log.Info("services wired")
 
 	// --- Router ---
@@ -176,6 +178,7 @@ func run() error {
 		TTTemplateService:      ttTemplateSvc,
 		SemanticSearchService:  semanticSearchSvc,
 		INPIPublicationService: inpiPubSvc,
+		IPTimestampService:     ipTimestampSvc,
 		AIBertURL:              cfg.AIBertURL,
 	})
 

@@ -21,6 +21,7 @@ import type {
   MarketplaceResponse, CitationNetwork,
   CalendarResponse, TTTemplate,
   AnalysisModeResponse,
+  IPTimestamp,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -282,6 +283,16 @@ export function useUFOPOpportunities(params?: Record<string, string>) {
   return useSWR<UFOPListResponse>(
     key,
     () => api.ufop.list(params),
+    SWR_OPTIONS
+  );
+}
+
+// ─── IP Timestamps / Proof-of-Existence ──────────────────────────────────────
+
+export function useTimestamps(limit = 20, offset = 0) {
+  return useSWR<{ items: IPTimestamp[]; pagination: { total: number; limit: number; offset: number } }>(
+    ["/api/v1/timestamps", limit, offset],
+    () => api.timestamps.list(limit, offset),
     SWR_OPTIONS
   );
 }

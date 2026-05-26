@@ -861,3 +861,25 @@ export interface Conflict {
   owner: string;
   filing_date: string;
 }
+
+// ─── IP Timestamps / Proof-of-Existence ─────────────────────────────────────
+
+export interface IPTimestamp {
+  id: number;
+  title: string;
+  description: string;
+  authors: string[];
+  category: string;
+  content_hash: string;
+  prev_hash: string;
+  chain_index: number;
+  created_at: string;
+  canonical_content?: string; // só presente na resposta de criação
+}
+
+export interface IPTimestampCreateRequest {
+  title: string;
+  description: string;
+  authors: string[];
+  category: string;
+}

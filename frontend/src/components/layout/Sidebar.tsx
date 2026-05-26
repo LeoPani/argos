@@ -17,21 +17,23 @@ import {
   Sparkles,
   Briefcase,
   Calendar as CalendarIcon,
+  ShieldCheck,
 } from "lucide-react";
 
 const nav = [
-  { href: "/dashboard", icon: LayoutDashboard, label: "BI & Analytics" },
-  { href: "/metricas",  icon: Award, label: "Métricas Acadêmicas" },
-  { href: "/smart-filing", icon: Sparkles, label: "Smart Filing" },
-  { href: "/marketplace",  icon: Briefcase,    label: "TT Marketplace" },
-  { href: "/calendario",   icon: CalendarIcon, label: "Calendário NIT" },
-  { href: "/consultas", icon: Search, label: "Consultas" },
-  { href: "/portfolio", icon: FolderOpen, label: "Portfolio de PI" },
-  { href: "/arbitragem", icon: Scale, label: "Arbitragem" },
-  { href: "/ufop", icon: GraduationCap, label: "UFOP Intelligence" },
-  { href: "/pool", icon: Landmark, label: "Pool de Patentes" },
-  { href: "/alertas", icon: Bell, label: "Alertas" },
-  { href: "/chat", icon: MessageSquare, label: "Chat de PI" },
+  { href: "/dashboard",     icon: LayoutDashboard, label: "BI & Analytics" },
+  { href: "/metricas",      icon: Award,           label: "Métricas Acadêmicas" },
+  { href: "/smart-filing",  icon: Sparkles,        label: "Smart Filing" },
+  { href: "/anterioridade", icon: ShieldCheck,     label: "Anterioridade" },
+  { href: "/marketplace",   icon: Briefcase,       label: "TT Marketplace" },
+  { href: "/calendario",    icon: CalendarIcon,    label: "Calendário NIT" },
+  { href: "/consultas",     icon: Search,          label: "Consultas" },
+  { href: "/portfolio",     icon: FolderOpen,      label: "Portfolio de PI" },
+  { href: "/arbitragem",    icon: Scale,           label: "Arbitragem" },
+  { href: "/ufop",          icon: GraduationCap,   label: "UFOP Intelligence" },
+  { href: "/pool",          icon: Landmark,        label: "Pool de Patentes" },
+  { href: "/alertas",       icon: Bell,            label: "Alertas" },
+  { href: "/chat",          icon: MessageSquare,   label: "Chat de PI" },
 ];
 
 export function Sidebar() {
