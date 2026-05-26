@@ -118,6 +118,13 @@ func run() error {
 
 	arbitrationRepo := pg.NewArbitrationRepo(db)
 	arbitrationAI := service.NewArbitrationAI(arbitrationRepo, patentRepo, trademarkRepo, disputeRepo)
+	if groqKey := os.Getenv("GROQ_API_KEY"); groqKey != "" {
+		gc := groqclassifier.New(groqclassifier.Config{APIKey: groqKey})
+		if gc != nil {
+			arbitrationAI = arbitrationAI.WithGroq(gc)
+			log.Info("arbitration groq llm enabled", "model", gc.Model())
+		}
+	}
 
 	ttContractRepo := pg.NewTTContractRepo(db)
 	ttContractSvc := service.NewTTContractService(ttContractRepo)
@@ -136,6 +143,13 @@ func run() error {
 	enrichmentSvc := service.NewEnrichmentService(db, patentRepo, lensPatentClient)
 
 	smartFilingSvc := service.NewSmartFilingService(aiSvc, patentRepo)
+	if groqKey := os.Getenv("GROQ_API_KEY"); groqKey != "" {
+		gc := groqclassifier.New(groqclassifier.Config{APIKey: groqKey})
+		if gc != nil {
+			smartFilingSvc = smartFilingSvc.WithGroq(gc)
+			log.Info("smart-filing groq claim generation enabled")
+		}
+	}
 
 	marketplaceSvc := service.NewMarketplaceService(db)
 

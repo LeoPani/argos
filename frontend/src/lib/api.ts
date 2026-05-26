@@ -26,6 +26,7 @@ import type {
   WatchType, Watchlist, WatchlistListResponse,
   Dispute, DisputeListResponse, DisputeKind, DisputeStatus,
   DisputeSubject, SubjectKind, ArbitrationVerdict,
+  PIComparisonResult,
   TTContract, TTContractListResponse, LicenseKind, ContractStatus,
   PatentPool, PoolListResponse, PoolKind, PoolMember,
   ChatThread, ChatThreadListResponse, ChatRole, ChatMessage,
@@ -38,6 +39,7 @@ import type {
   CalendarResponse, TTTemplate,
   AnalysisModeResponse,
   IPTimestamp, IPTimestampCreateRequest,
+  INPITimelineResponse,
 } from "./types";
 
 export const api = {
@@ -198,6 +200,11 @@ export const api = {
       req<ArbitrationVerdict>(`/api/v1/disputes/${disputeID}/analyze`, { method: "POST" }),
     verdict: (disputeID: number) =>
       req<{ verdict: ArbitrationVerdict | null }>(`/api/v1/disputes/${disputeID}/verdict`),
+    compare: (patentAID: number, patentBID: number) =>
+      req<PIComparisonResult>("/api/v1/disputes/compare", {
+        method: "POST",
+        body: JSON.stringify({ patent_a_id: patentAID, patent_b_id: patentBID }),
+      }),
   },
 
   ttContracts: {
@@ -292,6 +299,15 @@ export const api = {
     verify: (id: number) =>
       req<{ valid: boolean; recomputed_hash: string; integrity_message: string }>(
         `/api/v1/timestamps/${id}/verify`
+      ),
+  },
+
+  inpi: {
+    timeline: (limit = 50) =>
+      req<INPITimelineResponse>(`/api/v1/inpi-publications/timeline?limit=${limit}`),
+    stats: () =>
+      req<{ total_records: number; ufop_records: number; latest_rpi: number; oldest_rpi: number }>(
+        `/api/v1/inpi-publications/stats`
       ),
   },
 };

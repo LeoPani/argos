@@ -30,6 +30,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/LeoPani/argos/backend/internal/ai/groqclassifier"
 	"github.com/LeoPani/argos/backend/internal/domain"
 	"github.com/LeoPani/argos/backend/internal/repository"
 )
@@ -44,12 +45,13 @@ type ArbitrationStorage interface {
 	LatestVerdict(ctx context.Context, disputeID int64) (*domain.ArbitrationVerdict, error)
 }
 
-// ArbitrationAI compares dispute subjects heuristically.
+// ArbitrationAI compares dispute subjects heuristically, with optional LLM enrichment.
 type ArbitrationAI struct {
 	storage    ArbitrationStorage
 	patents    repository.PatentRepository
 	trademarks repository.TrademarkRepository
 	disputes   repository.DisputeRepository
+	groq       *groqclassifier.Client // optional — nil = heuristic only
 }
 
 // NewArbitrationAI wires up the analyzer.
@@ -60,6 +62,224 @@ func NewArbitrationAI(
 	disputes repository.DisputeRepository,
 ) *ArbitrationAI {
 	return &ArbitrationAI{storage: storage, patents: patents, trademarks: trademarks, disputes: disputes}
+}
+
+// WithGroq enables LLM-powered comparison (optional, gracefully degrades if nil).
+func (a *ArbitrationAI) WithGroq(gc *groqclassifier.Client) *ArbitrationAI {
+	a.groq = gc
+	return a
+}
+
+// ─── Quick PI comparison (no dispute required) ────────────────────────────────
+
+// PIComparisonRequest contains two patent IDs to compare.
+type PIComparisonRequest struct {
+	PatentAID int64 `json:"patent_a_id"`
+	PatentBID int64 `json:"patent_b_id"`
+}
+
+// PIComparisonResult is the output of a quick direct comparison.
+type PIComparisonResult struct {
+	PatentA             *domain.Patent                       `json:"patent_a"`
+	PatentB             *domain.Patent                       `json:"patent_b"`
+	Method              string                               `json:"method"` // "llm_groq" | "heuristic"
+	SimilarityScore     float64                              `json:"similarity_score"`
+	ConflictAreas       []string                             `json:"conflict_areas"`
+	DifferentiatingClaims []string                           `json:"differentiating_claims"`
+	Recommendation      string                               `json:"recommendation"`
+	Narrative           string                               `json:"narrative"`
+	PatentAStrengths    []string                             `json:"patent_a_strengths"`
+	PatentBStrengths    []string                             `json:"patent_b_strengths"`
+	PriorityWinner      string                               `json:"priority_winner"` // "A" | "B" | "equal"
+}
+
+// ComparePatents performs a direct comparison between two patents.
+// If Groq is available it calls the LLM; otherwise falls back to local heuristic.
+func (a *ArbitrationAI) ComparePatents(ctx context.Context, idA, idB int64) (*PIComparisonResult, error) {
+	pA, err := a.patents.GetByID(ctx, idA)
+	if err != nil {
+		return nil, fmt.Errorf("patent A #%d: %w", idA, err)
+	}
+	pB, err := a.patents.GetByID(ctx, idB)
+	if err != nil {
+		return nil, fmt.Errorf("patent B #%d: %w", idB, err)
+	}
+
+	result := &PIComparisonResult{
+		PatentA: pA,
+		PatentB: pB,
+	}
+
+	// Priority (first-to-file).
+	result.PriorityWinner = comparePriority(pA, pB)
+
+	// Try LLM first.
+	if a.groq != nil {
+		filingA, filingB := "", ""
+		if pA.FilingDate != nil {
+			filingA = pA.FilingDate.Format("02/01/2006")
+		}
+		if pB.FilingDate != nil {
+			filingB = pB.FilingDate.Format("02/01/2006")
+		}
+		llmRes, err := a.groq.ComparePatents(ctx,
+			pA.Title, pA.Abstract, string(pA.IPCCategory), filingA,
+			pB.Title, pB.Abstract, string(pB.IPCCategory), filingB,
+		)
+		if err == nil {
+			result.Method                = "llm_groq"
+			result.SimilarityScore       = llmRes.SimilarityScore
+			result.ConflictAreas         = llmRes.ConflictAreas
+			result.DifferentiatingClaims = llmRes.DifferentiatingClaims
+			result.Recommendation        = llmRes.Recommendation
+			result.Narrative             = llmRes.Narrative
+			result.PatentAStrengths      = llmRes.PatentAStrengths
+			result.PatentBStrengths      = llmRes.PatentBStrengths
+			return result, nil
+		}
+		// LLM failed — fall through to heuristic.
+	}
+
+	// Heuristic fallback.
+	result.Method = "heuristic"
+	result.SimilarityScore, result.ConflictAreas, result.DifferentiatingClaims,
+		result.Recommendation, result.Narrative,
+		result.PatentAStrengths, result.PatentBStrengths =
+		heuristicPatentCompare(pA, pB)
+
+	return result, nil
+}
+
+// comparePriority returns "A", "B", or "equal" based on filing dates.
+func comparePriority(a, b *domain.Patent) string {
+	if a.FilingDate == nil && b.FilingDate == nil {
+		return "equal"
+	}
+	if a.FilingDate == nil {
+		return "B"
+	}
+	if b.FilingDate == nil {
+		return "A"
+	}
+	switch {
+	case a.FilingDate.Before(*b.FilingDate):
+		return "A"
+	case b.FilingDate.Before(*a.FilingDate):
+		return "B"
+	default:
+		return "equal"
+	}
+}
+
+// heuristicPatentCompare produces a local comparison when Groq is unavailable.
+func heuristicPatentCompare(a, b *domain.Patent) (
+	score float64, conflicts, diffs []string, rec, narrative string,
+	aStr, bStr []string,
+) {
+	// IPC overlap.
+	ipcSame := a.IPCCategory == b.IPCCategory && a.IPCCategory.IsValid()
+
+	// Abstract similarity via trigrams.
+	score = trigramSimilarity(a.Abstract, b.Abstract)
+	if ipcSame {
+		score = math.Min(1.0, score+0.15) // boost for same IPC
+	}
+
+	if ipcSame {
+		conflicts = append(conflicts, fmt.Sprintf("Mesma categoria IPC: %s", a.IPCCategory))
+	}
+
+	// Title words overlap.
+	titleSim := trigramSimilarity(a.Title, b.Title)
+	if titleSim > 0.5 {
+		conflicts = append(conflicts, fmt.Sprintf("Títulos com alta similaridade (%.0f%%)", titleSim*100))
+	}
+
+	// Differentiators.
+	if !ipcSame {
+		diffs = append(diffs, fmt.Sprintf("Categorias IPC distintas (%s vs %s)", a.IPCCategory, b.IPCCategory))
+	}
+	la, lb := len(a.Abstract), len(b.Abstract)
+	if la > 0 && lb > 0 {
+		ratio := float64(la) / float64(lb)
+		if ratio < 0.5 {
+			diffs = append(diffs, "PI-B tem reivindicação muito mais ampla (abstract maior)")
+		} else if ratio > 2.0 {
+			diffs = append(diffs, "PI-A tem reivindicação muito mais ampla (abstract maior)")
+		}
+	}
+
+	switch {
+	case score >= 0.65:
+		rec = "possivel_infracao"
+		narrative = fmt.Sprintf(
+			"Alta similaridade técnica (%.0f%%) detectada entre as duas PIs na mesma categoria IPC. "+
+				"Existe risco real de sobreposição de reivindicações — recomenda-se análise jurídica detalhada.",
+			score*100,
+		)
+	case score >= 0.35:
+		rec = "inconclusivo"
+		narrative = fmt.Sprintf(
+			"Similaridade moderada (%.0f%%). Existem elementos técnicos comuns mas também diferenciadores. "+
+				"Análise de reivindicações específicas é necessária para determinar infração.",
+			score*100,
+		)
+	default:
+		rec = "sem_conflito"
+		narrative = fmt.Sprintf(
+			"Baixa similaridade técnica (%.0f%%). As PIs abordam problemas técnicos distintos. "+
+				"Risco de conflito de reivindicações é baixo.",
+			score*100,
+		)
+	}
+
+	// Strengths.
+	if a.FilingDate != nil {
+		aStr = append(aStr, fmt.Sprintf("Depositada em %s", a.FilingDate.Format("02/01/2006")))
+	}
+	if len(a.Abstract) > 300 {
+		aStr = append(aStr, "Abstract detalhado (reivindicação específica)")
+	}
+	if b.FilingDate != nil {
+		bStr = append(bStr, fmt.Sprintf("Depositada em %s", b.FilingDate.Format("02/01/2006")))
+	}
+	if len(b.Abstract) > 300 {
+		bStr = append(bStr, "Abstract detalhado (reivindicação específica)")
+	}
+	return
+}
+
+// trigramSimilarity computes Dice coefficient on character trigrams (lowercased).
+func trigramSimilarity(a, b string) float64 {
+	a = strings.ToLower(a)
+	b = strings.ToLower(b)
+	if a == "" || b == "" {
+		return 0
+	}
+	build := func(s string) map[string]int {
+		m := map[string]int{}
+		s = "  " + s + "  "
+		for i := 0; i+3 <= len(s); i++ {
+			m[s[i:i+3]]++
+		}
+		return m
+	}
+	ta, tb := build(a), build(b)
+	var common int
+	for k, cnt := range ta {
+		if c2, ok := tb[k]; ok {
+			if cnt < c2 {
+				common += cnt
+			} else {
+				common += c2
+			}
+		}
+	}
+	total := 0
+	for _, v := range ta { total += v }
+	for _, v := range tb { total += v }
+	if total == 0 { return 0 }
+	return 2.0 * float64(common) / float64(total)
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────

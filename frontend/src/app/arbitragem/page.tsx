@@ -9,11 +9,16 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useDisputes, useDisputeSubjects, useDisputeVerdict, usePatents } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
-import type { Dispute, DisputeStatus, DisputeKind, SubjectKind, DisputeSubject } from "@/lib/types";
+import type {
+  Dispute, DisputeStatus, DisputeKind, SubjectKind,
+  DisputeSubject, Patent, PIComparisonResult,
+} from "@/lib/types";
 import {
   Scale, Plus, FileText, Clock, AlertTriangle,
   RefreshCw, CheckCircle2, X, ArrowRight,
   Sparkles, Trophy, Trash2, Tag as TagIcon,
+  GitCompare, AlertCircle, CheckCircle, HelpCircle,
+  Zap, Loader2,
 } from "lucide-react";
 
 // ─── status / kind labels ─────────────────────────────────────────────────────
@@ -43,9 +48,315 @@ const kindLabel: Record<DisputeKind, string> = {
 
 const activeStatuses: DisputeStatus[] = ["open", "in_review", "awaiting_info", "escalated"];
 
+// ─── tabs ─────────────────────────────────────────────────────────────────────
+
+type Tab = "compare" | "disputes";
+
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export default function ArbitragemPage() {
+  const [tab, setTab] = useState<Tab>("compare");
+
+  return (
+    <div className="p-8 space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+          <Scale size={22} />
+          Arbitragem de PI
+        </h1>
+        <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+          Comparação direta de patentes via IA e gestão de disputas formais
+        </p>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 p-1 rounded-xl w-fit"
+        style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+        {([
+          { id: "compare" as Tab, icon: GitCompare, label: "Comparação Direta" },
+          { id: "disputes" as Tab, icon: Scale, label: "Disputas Formais" },
+        ]).map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+            style={{
+              background: tab === t.id ? "var(--accent)" : "transparent",
+              color: tab === t.id ? "white" : "var(--text-muted)",
+            }}>
+            <t.icon size={14} />
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "compare" ? <CompareTab /> : <DisputesTab />}
+    </div>
+  );
+}
+
+// ─── Comparação Direta ────────────────────────────────────────────────────────
+
+function CompareTab() {
+  const { data: patentsData } = usePatents({ limit: "200" });
+  const patents: Patent[] = patentsData?.items ?? [];
+
+  const [idA, setIdA] = useState<number | "">("");
+  const [idB, setIdB] = useState<number | "">("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+  const [result, setResult]   = useState<PIComparisonResult | null>(null);
+
+  async function run() {
+    if (!idA || !idB) return;
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const r = await api.disputes.compare(Number(idA), Number(idB));
+      setResult(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro na comparação");
+    } finally { setLoading(false); }
+  }
+
+  const pA = patents.find(p => p.id === Number(idA));
+  const pB = patents.find(p => p.id === Number(idB));
+
+  return (
+    <div className="space-y-6">
+      {/* Explainer */}
+      <div className="rounded-xl p-4 grid grid-cols-3 gap-4 text-center text-sm"
+        style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+        {[
+          { icon: <GitCompare size={16} className="text-indigo-400" />, t: "1. Selecione", d: "Escolha dois documentos de PI do banco de dados" },
+          { icon: <Zap size={16} className="text-amber-400" />, t: "2. Groq LLM", d: "IA analisa títulos, abstracts, IPC e datas de depósito" },
+          { icon: <Scale size={16} className="text-emerald-400" />, t: "3. Veredito", d: "Recebe: score de similaridade, áreas de conflito e recomendação" },
+        ].map(s => (
+          <div key={s.t} className="space-y-1.5">
+            <div className="flex justify-center">{s.icon}</div>
+            <p className="font-semibold text-white">{s.t}</p>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>{s.d}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Selectors */}
+      <Card>
+        <h2 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <GitCompare size={14} className="text-indigo-400" />
+          Selecionar patentes para comparar
+        </h2>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>
+              Patente A
+            </label>
+            <select
+              className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none focus:ring-1 focus:ring-indigo-500"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+              value={idA}
+              onChange={e => setIdA(e.target.value ? Number(e.target.value) : "")}>
+              <option value="">-- Selecione --</option>
+              {patents.map(p => (
+                <option key={p.id} value={p.id}>
+                  #{p.id} · {p.application_number} — {p.title.slice(0, 60)}{p.title.length > 60 ? "…" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>
+              Patente B
+            </label>
+            <select
+              className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none focus:ring-1 focus:ring-indigo-500"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+              value={idB}
+              onChange={e => setIdB(e.target.value ? Number(e.target.value) : "")}>
+              <option value="">-- Selecione --</option>
+              {patents.filter(p => p.id !== Number(idA)).map(p => (
+                <option key={p.id} value={p.id}>
+                  #{p.id} · {p.application_number} — {p.title.slice(0, 60)}{p.title.length > 60 ? "…" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-4 flex items-center gap-2 p-3 rounded-lg text-sm text-red-400"
+            style={{ background: "#2a1010", border: "1px solid #ef444440" }}>
+            <AlertTriangle size={14} /> {error}
+          </div>
+        )}
+
+        <Button
+          onClick={run}
+          disabled={!idA || !idB || loading || idA === idB}
+          className="w-full">
+          {loading
+            ? <><Loader2 size={14} className="animate-spin" /> Analisando via Groq LLM…</>
+            : <><Sparkles size={14} /> Comparar com IA</>}
+        </Button>
+
+        {idA === idB && idA !== "" && (
+          <p className="text-xs mt-2 text-amber-400 text-center">Selecione patentes diferentes</p>
+        )}
+      </Card>
+
+      {/* Side-by-side mini preview */}
+      {pA && pB && !result && !loading && (
+        <div className="grid grid-cols-2 gap-4">
+          <PatentPreview patent={pA} label="A" />
+          <PatentPreview patent={pB} label="B" />
+        </div>
+      )}
+
+      {/* Result */}
+      {result && <ComparisonResult result={result} />}
+    </div>
+  );
+}
+
+// ─── Patent preview card ──────────────────────────────────────────────────────
+
+function PatentPreview({ patent, label }: { patent: Patent; label: string }) {
+  return (
+    <Card style={{ borderColor: label === "A" ? "#6366f140" : "#f59e0b40" }}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded"
+          style={{ background: label === "A" ? "#6366f140" : "#f59e0b40", color: label === "A" ? "#818cf8" : "#fbbf24" }}>
+          PI {label}
+        </span>
+        <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>
+          {patent.application_number}
+        </span>
+      </div>
+      <p className="text-sm font-semibold text-white leading-snug mb-2">{patent.title}</p>
+      <p className="text-xs leading-relaxed line-clamp-3" style={{ color: "var(--text-muted)" }}>
+        {patent.abstract || "Sem abstract disponível"}
+      </p>
+      <div className="flex items-center gap-3 mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+        {patent.filing_date && <span>📅 {formatDate(patent.filing_date)}</span>}
+        {patent.ipc_category !== null && <span>IPC: {["A","B","C","D","E","F","G","H"][patent.ipc_category] ?? patent.ipc_category}</span>}
+      </div>
+    </Card>
+  );
+}
+
+// ─── Comparison result ────────────────────────────────────────────────────────
+
+const recInfo: Record<string, { label: string; color: string; icon: typeof AlertCircle }> = {
+  possivel_infracao: { label: "Possível infração",  color: "#ef4444", icon: AlertCircle   },
+  sem_conflito:      { label: "Sem conflito",        color: "#34d399", icon: CheckCircle   },
+  inconclusivo:      { label: "Inconclusivo",        color: "#f59e0b", icon: HelpCircle    },
+};
+
+function ComparisonResult({ result }: { result: PIComparisonResult }) {
+  const rec = recInfo[result.recommendation] ?? recInfo["inconclusivo"];
+  const RecIcon = rec.icon;
+  const pctScore = Math.round(result.similarity_score * 100);
+
+  return (
+    <div className="space-y-4">
+      {/* Verdict banner */}
+      <div className="rounded-xl p-5"
+        style={{ background: rec.color + "15", border: `2px solid ${rec.color}40` }}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <RecIcon size={24} style={{ color: rec.color }} />
+            <div>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>Veredito da IA</p>
+              <p className="text-xl font-bold" style={{ color: rec.color }}>{rec.label}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>Similaridade técnica</p>
+            <p className="text-3xl font-bold text-white">{pctScore}%</p>
+          </div>
+        </div>
+
+        {/* Score bar */}
+        <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--surface-2)" }}>
+          <div className="h-full rounded-full transition-all"
+            style={{
+              width: `${pctScore}%`,
+              background: pctScore >= 65 ? "#ef4444" : pctScore >= 35 ? "#f59e0b" : "#34d399",
+            }} />
+        </div>
+
+        <p className="text-sm mt-3 leading-relaxed" style={{ color: "var(--text-muted)" }}>
+          {result.narrative}
+        </p>
+
+        <div className="flex items-center gap-3 mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+          <span>Método: <span className="text-white">{result.method === "llm_groq" ? "🤖 Groq LLM" : "📐 Heurística local"}</span></span>
+          <span>·</span>
+          <span>Prioridade: <span style={{ color: "#fbbf24" }}>PI {result.priority_winner === "equal" ? "A=B" : result.priority_winner} depositou primeiro</span></span>
+        </div>
+      </div>
+
+      {/* Side-by-side analysis */}
+      <div className="grid grid-cols-2 gap-4">
+        <PatentPreview patent={result.patent_a} label="A" />
+        <PatentPreview patent={result.patent_b} label="B" />
+      </div>
+
+      {/* Conflict + Diff */}
+      <div className="grid grid-cols-2 gap-4">
+        {result.conflict_areas.length > 0 && (
+          <Card style={{ borderColor: "#ef444430" }}>
+            <h3 className="text-xs font-semibold text-red-400 mb-2 flex items-center gap-1">
+              <AlertCircle size={11} /> Áreas de conflito
+            </h3>
+            <ul className="space-y-1">
+              {result.conflict_areas.map((c, i) => (
+                <li key={i} className="text-xs text-red-300">⚠ {c}</li>
+              ))}
+            </ul>
+          </Card>
+        )}
+        {result.differentiating_claims.length > 0 && (
+          <Card style={{ borderColor: "#34d39930" }}>
+            <h3 className="text-xs font-semibold text-emerald-400 mb-2 flex items-center gap-1">
+              <CheckCircle size={11} /> Fatores diferenciadores
+            </h3>
+            <ul className="space-y-1">
+              {result.differentiating_claims.map((d, i) => (
+                <li key={i} className="text-xs text-emerald-300">✓ {d}</li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </div>
+
+      {/* Per-patent strengths */}
+      <div className="grid grid-cols-2 gap-4">
+        {[
+          { label: "PI A", strengths: result.patent_a_strengths, color: "#6366f1" },
+          { label: "PI B", strengths: result.patent_b_strengths, color: "#f59e0b" },
+        ].map(({ label, strengths, color }) => (
+          <Card key={label}>
+            <h3 className="text-xs font-semibold mb-2" style={{ color }}>
+              Pontos fortes — {label}
+            </h3>
+            {strengths.length > 0 ? (
+              <ul className="space-y-1">
+                {strengths.map((s, i) => (
+                  <li key={i} className="text-xs" style={{ color: "var(--text-muted)" }}>+ {s}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>Sem pontos fortes destacados</p>
+            )}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── DisputesTab (dispute management, existing logic) ─────────────────────────
+
+function DisputesTab() {
   const { data, error, isLoading, mutate } = useDisputes({ limit: "50" });
   const [selectedID, setSelectedID] = useState<number | null>(null);
   const [showForm, setShowForm]     = useState(false);
@@ -59,18 +370,9 @@ export default function ArbitragemPage() {
   const escalated = items.filter(d => d.status === "escalated").length;
 
   return (
-    <div className="p-8 space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Scale size={22} />
-            Arbitragem de PI
-          </h1>
-          <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-            Gestão de disputas, provas e mediação interna
-          </p>
-        </div>
+    <div className="space-y-6">
+      {/* Controls */}
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {isLive ? (
             <span className="text-xs text-emerald-400 flex items-center gap-1">
@@ -80,6 +382,8 @@ export default function ArbitragemPage() {
           ) : (
             <span className="text-xs text-amber-400">backend offline</span>
           )}
+        </div>
+        <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => mutate()}>
             <RefreshCw size={13} /> Atualizar
           </Button>
@@ -211,7 +515,6 @@ function DisputeDetail({ dispute, onChanged }: { dispute: Dispute; onChanged: ()
   const [busy, setBusy]       = useState(false);
   const [error, setError]     = useState<string | null>(null);
 
-  // Next-state options based on current status
   const transitions: Record<DisputeStatus, DisputeStatus[]> = {
     open:          ["in_review", "withdrawn"],
     in_review:     ["awaiting_info", "resolved", "escalated"],
@@ -258,7 +561,6 @@ function DisputeDetail({ dispute, onChanged }: { dispute: Dispute; onChanged: ()
         </div>
       </Card>
 
-      {/* Status transitions */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -275,10 +577,9 @@ function DisputeDetail({ dispute, onChanged }: { dispute: Dispute; onChanged: ()
         ) : (
           <div className="flex gap-2 flex-wrap">
             {nextOptions.map(s => {
-              const { label, variant } = statusInfo(s);
+              const { label } = statusInfo(s);
               return (
-                <Button key={s} size="sm"
-                  variant={variant === "danger" ? "secondary" : "secondary"}
+                <Button key={s} size="sm" variant="secondary"
                   disabled={busy}
                   onClick={() => changeStatus(s)}>
                   {busy ? "…" : `→ ${label}`}
@@ -299,7 +600,7 @@ function DisputeDetail({ dispute, onChanged }: { dispute: Dispute; onChanged: ()
   );
 }
 
-// ─── Subjects panel — N marcas/patentes em comparação ─────────────────────────
+// ─── Subjects panel ────────────────────────────────────────────────────────────
 
 function SubjectsPanel({ disputeID, kind }: { disputeID: number; kind: DisputeKind }) {
   const { data: subjData, mutate } = useDisputeSubjects(disputeID);
@@ -419,7 +720,7 @@ function AddSubjectForm({ disputeID, defaultKind, onAdded }: {
   );
 }
 
-// ─── Verdict panel — IA generates report ──────────────────────────────────────
+// ─── Verdict panel ─────────────────────────────────────────────────────────────
 
 function VerdictPanel({ disputeID }: { disputeID: number }) {
   const { data, mutate } = useDisputeVerdict(disputeID);
@@ -454,11 +755,9 @@ function VerdictPanel({ disputeID }: { disputeID: number }) {
       {!verdict ? (
         <p className="text-xs py-2" style={{ color: "var(--text-muted)" }}>
           Clique em "Analisar" para gerar veredito baseado nas marcas/patentes adicionadas.
-          O modelo compara prioridade temporal, distintividade, classes Nice e status no INPI.
         </p>
       ) : (
         <div className="space-y-3">
-          {/* Summary */}
           <div className="rounded-lg p-3"
             style={{ background: "#a855f720", border: "1px solid #a855f740" }}>
             <div className="flex items-start gap-2">
@@ -474,19 +773,15 @@ function VerdictPanel({ disputeID }: { disputeID: number }) {
             </div>
           </div>
 
-          {/* Factors considered */}
           <div>
             <p className="text-xs font-semibold text-white mb-1">Fatores considerados</p>
             <ul className="space-y-0.5">
               {verdict.reasoning.factors.map((f, i) => (
-                <li key={i} className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  · {f}
-                </li>
+                <li key={i} className="text-xs" style={{ color: "var(--text-muted)" }}>· {f}</li>
               ))}
             </ul>
           </div>
 
-          {/* Per-subject scores */}
           <div>
             <p className="text-xs font-semibold text-white mb-2">Análise por candidato</p>
             <div className="space-y-2">
@@ -510,16 +805,12 @@ function VerdictPanel({ disputeID }: { disputeID: number }) {
                     </div>
                     {s.pro.length > 0 && (
                       <div className="space-y-0.5 mb-1">
-                        {s.pro.map((p, i) => (
-                          <p key={i} className="text-xs text-emerald-400">+ {p}</p>
-                        ))}
+                        {s.pro.map((p, i) => <p key={i} className="text-xs text-emerald-400">+ {p}</p>)}
                       </div>
                     )}
                     {s.con.length > 0 && (
                       <div className="space-y-0.5">
-                        {s.con.map((c, i) => (
-                          <p key={i} className="text-xs text-red-400">− {c}</p>
-                        ))}
+                        {s.con.map((c, i) => <p key={i} className="text-xs text-red-400">− {c}</p>)}
                       </div>
                     )}
                   </div>
@@ -608,7 +899,6 @@ function OpenDisputeForm({ onCreated }: { onCreated: () => void }) {
         </Button>
       </form>
 
-      {/* shared input style */}
       <style jsx>{`
         .input {
           width: 100%;

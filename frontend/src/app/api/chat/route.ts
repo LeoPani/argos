@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const ARGOS_API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
-const SYSTEM_PROMPT = `Você é o Argos, um assistente especializado em Propriedade Intelectual (PI) brasileiro.
+const BASE_SYSTEM_PROMPT = `Você é o Argos, um assistente especializado em Propriedade Intelectual (PI) brasileiro.
 
 Suas especialidades:
 - Patentes de Invenção (PI) e Modelos de Utilidade (MU) no INPI
@@ -34,6 +34,35 @@ Tabela anuidades (demais empresas):
 - Anos 11-15: R$ 2.355/ano
 - Anos 16-20: R$ 3.140/ano`;
 
+// Builds a dynamic system prompt enriched with live portfolio metrics.
+// Called once per request; failures fall back to BASE_SYSTEM_PROMPT.
+async function buildSystemPrompt(): Promise<string> {
+  try {
+    const res = await fetch(`${ARGOS_API}/api/v1/stats`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return BASE_SYSTEM_PROMPT;
+    const stats = await res.json();
+    const c = stats?.counts;
+    if (!c) return BASE_SYSTEM_PROMPT;
+
+    const portfolioCtx = `
+Estado atual do portfólio UFOP (dados ao vivo):
+- Patentes cadastradas: ${c.patents ?? 0} (${c.patents_classified ?? 0} classificadas por IA)
+- Marcas registradas: ${c.trademarks ?? 0} (${c.trademarks_active ?? 0} ativas)
+- Disputas abertas: ${c.disputes_open ?? 0} de ${c.disputes ?? 0} totais
+- Oportunidades de patente UFOP: ${c.ufop_opportunities ?? 0} (${c.ufop_high ?? 0} de alto potencial)
+- Despachos INPI indexados: ${c.inpi_publications ?? 0} (Última RPI: ${c.latest_rpi ?? "N/A"})
+- Registros de anterioridade (SHA-256): ${c.ip_timestamps ?? 0}
+
+Use esses números ao responder perguntas sobre o portfólio. Se perguntarem sobre uma patente específica, sugira usar a busca na plataforma.`;
+
+    return BASE_SYSTEM_PROMPT + portfolioCtx;
+  } catch {
+    return BASE_SYSTEM_PROMPT;
+  }
+}
+
 interface ChatRequestMsg { role: string; content: string }
 interface ChatRequest {
   messages: ChatRequestMsg[];
@@ -41,13 +70,13 @@ interface ChatRequest {
 }
 
 // ─── Anthropic provider ──────────────────────────────────────────────────────
-async function callAnthropic(messages: ChatRequestMsg[]): Promise<string> {
+async function callAnthropic(messages: ChatRequestMsg[], systemPrompt: string): Promise<string> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: messages.slice(-20).map(m => ({
       role: m.role as "user" | "assistant",
       content: m.content,
@@ -57,7 +86,7 @@ async function callAnthropic(messages: ChatRequestMsg[]): Promise<string> {
 }
 
 // ─── Groq provider (fallback) ────────────────────────────────────────────────
-async function callGroq(messages: ChatRequestMsg[]): Promise<string> {
+async function callGroq(messages: ChatRequestMsg[], systemPrompt: string): Promise<string> {
   const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -69,7 +98,7 @@ async function callGroq(messages: ChatRequestMsg[]): Promise<string> {
       max_tokens: 1024,
       temperature: 0.3,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         ...messages.slice(-20).map(m => ({ role: m.role, content: m.content })),
       ],
     }),
@@ -101,14 +130,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Nenhuma mensagem do usuário" }, { status: 400 });
     }
 
+    // Build dynamic system prompt enriched with live portfolio stats
+    const systemPrompt = await buildSystemPrompt();
+
     // Usa Anthropic se disponível, senão Groq
     let assistantText = "";
     let provider = "groq";
     if (hasAnthropic) {
-      assistantText = await callAnthropic(messages);
+      assistantText = await callAnthropic(messages, systemPrompt);
       provider = "anthropic";
     } else {
-      assistantText = await callGroq(messages);
+      assistantText = await callGroq(messages, systemPrompt);
     }
 
     // ─ Persistir no backend (best-effort) ─

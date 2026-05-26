@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { useChatThreads, useChatThread } from "@/lib/hooks";
+import { useChatThreads, useChatThread, useStats } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import type { ChatMessage as PersistedMsg, ChatRole } from "@/lib/types";
 import {
@@ -16,14 +16,35 @@ interface Message {
   content: string;
 }
 
-const SUGGESTIONS = [
+// Sugestões estáticas base — perguntas fundamentais de PI
+const BASE_SUGGESTIONS = [
   "Minha ideia pode ser patenteada?",
   "Qual a diferença entre Patente de Invenção e Modelo de Utilidade?",
   "Como calcular as anuidades de uma patente no Brasil?",
   "O que é prior art e como afeta minha patente?",
-  "Como funciona a transferência de tecnologia com a UFOP?",
-  "Qual o prazo para responder uma exigência do INPI?",
 ];
+
+// Sugestões dinâmicas geradas com base no portfólio ao vivo
+function buildDynamicSuggestions(counts?: {
+  patents: number; ufop_opportunities: number; ufop_high: number;
+  inpi_publications: number; disputes_open: number; latest_rpi: number;
+}): string[] {
+  if (!counts) return [];
+  const s: string[] = [];
+
+  if (counts.patents > 0)
+    s.push(`Temos ${counts.patents} patentes — quais têm maior risco de perder vigência?`);
+  if (counts.ufop_high > 0)
+    s.push(`Há ${counts.ufop_high} oportunidades UFOP de alto potencial — o que fazer com elas?`);
+  if (counts.inpi_publications > 0 && counts.latest_rpi > 0)
+    s.push(`O que significam os despachos da RPI ${counts.latest_rpi}?`);
+  if (counts.disputes_open > 0)
+    s.push(`Temos ${counts.disputes_open} ${counts.disputes_open === 1 ? "disputa aberta" : "disputas abertas"} — quais são os próximos passos?`);
+  if (counts.ufop_opportunities > 50)
+    s.push(`Como priorizar as ${counts.ufop_opportunities.toLocaleString("pt-BR")} oportunidades UFOP para depósito?`);
+
+  return s.slice(0, 3); // max 3 dinâmicas
+}
 
 const WELCOME: Message = {
   id: "welcome",
@@ -48,6 +69,9 @@ export default function ChatPage() {
 
   const [activeThreadID, setActiveThreadID] = useState<number | null>(null);
   const { data: activeThread } = useChatThread(activeThreadID);
+
+  // Portfolio stats for dynamic suggestions
+  const { data: stats } = useStats();
 
   // Chat UI state
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
@@ -142,6 +166,13 @@ export default function ChatPage() {
   }
 
   const showSuggestions = messages.length === 1 && !loading && !activeThreadID;
+
+  // Merge base + dynamic suggestions, capped at 6
+  const allSuggestions = useMemo(() => {
+    const dynamic = buildDynamicSuggestions(stats?.counts);
+    const combined = [...dynamic, ...BASE_SUGGESTIONS];
+    return combined.slice(0, 6);
+  }, [stats?.counts]);
 
   return (
     <div className="flex h-screen">
@@ -266,17 +297,29 @@ export default function ChatPage() {
 
         {/* Suggestions (first message only) */}
         {showSuggestions && (
-          <div className="px-8 pb-3 flex flex-wrap gap-2">
-            {SUGGESTIONS.map(s => (
-              <button key={s} onClick={() => sendMessage(s)}
-                className="px-3 py-1.5 text-xs rounded-full transition-all hover:scale-105"
-                style={{
-                  background: "var(--surface)", border: "1px solid var(--border)",
-                  color: "var(--text-muted)",
-                }}>
-                {s}
-              </button>
-            ))}
+          <div className="px-8 pb-3">
+            {/* Section label */}
+            <p className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
+              {stats?.counts ? "💡 Sugestões com base no seu portfólio:" : "💡 Perguntas frequentes:"}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {allSuggestions.map((s, i) => {
+                // Dynamic suggestions (portfolio-based) get a slightly different style
+                const isDynamic = i < buildDynamicSuggestions(stats?.counts).length;
+                return (
+                  <button key={s} onClick={() => sendMessage(s)}
+                    className="px-3 py-1.5 text-xs rounded-full transition-all hover:scale-105 text-left"
+                    style={{
+                      background: isDynamic ? "#6366f115" : "var(--surface)",
+                      border: `1px solid ${isDynamic ? "#6366f140" : "var(--border)"}`,
+                      color: isDynamic ? "#a5b4fc" : "var(--text-muted)",
+                    }}>
+                    {isDynamic && <span className="mr-1">📊</span>}
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 

@@ -50,21 +50,31 @@ func (s *PriorArtService) Search(ctx context.Context, query, kind string) (*Prio
 		return result, nil
 	}
 
-	// Search patents
+	// Search patents — try full query first, then fall back to individual keywords
+	// so "processo nopol catalisador" still finds "NOPOL'S ACETYLATION PROCESS".
 	if kind == "patent" || kind == "both" {
-		f := domain.PatentFilter{Search: query, Limit: 10}
-		f.Normalize()
-		patents, err := s.patents.List(ctx, f)
-		if err != nil {
-			return nil, fmt.Errorf("prior art patent search: %w", err)
-		}
-		for _, p := range patents {
-			sim := estimateSimilarity(query, p.Title+" "+p.Abstract)
-			result.Hits = append(result.Hits, PriorArtHit{
-				Kind: "patent", ID: p.ID,
-				Number: p.ApplicationNumber, Title: p.Title,
-				Owner: p.Applicant, SimilarityPct: sim,
-			})
+		seen := map[int64]bool{}
+		searchTerms := uniqueTerms(query)
+
+		for _, term := range searchTerms {
+			f := domain.PatentFilter{Search: term, Limit: 10}
+			f.Normalize()
+			patents, err := s.patents.List(ctx, f)
+			if err != nil {
+				return nil, fmt.Errorf("prior art patent search: %w", err)
+			}
+			for _, p := range patents {
+				if seen[p.ID] {
+					continue
+				}
+				seen[p.ID] = true
+				sim := estimateSimilarity(query, p.Title+" "+p.Abstract)
+				result.Hits = append(result.Hits, PriorArtHit{
+					Kind: "patent", ID: p.ID,
+					Number: p.ApplicationNumber, Title: p.Title,
+					Owner: p.Applicant, SimilarityPct: sim,
+				})
+			}
 		}
 	}
 
@@ -130,6 +140,30 @@ func estimateSimilarity(query, target string) int {
 		return 100
 	}
 	return sim
+}
+
+// uniqueTerms returns the full query string plus any individual word with 4+ chars
+// that's not a Portuguese stop word. This ensures multi-word queries still hit
+// the DB via keyword fallback.
+var priorArtStopWords = map[string]bool{
+	"para": true, "com": true, "que": true, "uma": true, "dos": true,
+	"das": true, "por": true, "como": true, "mais": true, "seu": true,
+	"sua": true, "não": true, "este": true, "esta": true, "esse": true,
+	"essa": true, "the": true, "and": true, "for": true, "with": true,
+	"that": true, "from": true, "this": true,
+}
+
+func uniqueTerms(query string) []string {
+	terms := []string{query} // always try full query first
+	seen := map[string]bool{query: true}
+	for _, w := range strings.Fields(strings.ToLower(query)) {
+		w = strings.Trim(w, ".,;:!?\"'()-")
+		if len(w) >= 4 && !priorArtStopWords[w] && !seen[w] {
+			terms = append(terms, w)
+			seen[w] = true
+		}
+	}
+	return terms
 }
 
 func tokenize(s string) []string {

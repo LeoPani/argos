@@ -78,6 +78,103 @@ func New(cfg Config) *Client {
 
 func (c *Client) Model() string { return c.model }
 
+// PatentComparisonResult é a resposta estruturada da comparação entre dois documentos de PI.
+type PatentComparisonResult struct {
+	SimilarityScore        float64  `json:"similarity_score"`          // 0.0-1.0
+	ConflictAreas          []string `json:"conflict_areas"`             // áreas de sobreposição
+	DifferentiatingClaims  []string `json:"differentiating_claims"`     // o que distingue as patentes
+	Recommendation         string   `json:"recommendation"`             // "possivel_infracao" | "sem_conflito" | "inconclusivo"
+	Narrative              string   `json:"narrative"`                  // análise PT-BR (max 600 chars)
+	PatentAStrengths       []string `json:"patent_a_strengths"`
+	PatentBStrengths       []string `json:"patent_b_strengths"`
+}
+
+// ComparePatents compara dois documentos de PI usando o LLM.
+func (c *Client) ComparePatents(ctx context.Context, titleA, abstractA, ipcA, filingA, titleB, abstractB, ipcB, filingB string) (*PatentComparisonResult, error) {
+	userMsg := buildComparePrompt(titleA, abstractA, ipcA, filingA, titleB, abstractB, ipcB, filingB)
+	body := chatRequest{
+		Model:          c.model,
+		Temperature:    0.0,
+		MaxTokens:      800,
+		ResponseFormat: &responseFormat{Type: "json_object"},
+		Messages: []chatMessage{
+			{Role: "system", Content: compareSystemPrompt},
+			{Role: "user", Content: userMsg},
+		},
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("groq returned %d: %s", resp.StatusCode, truncate(string(respBody), 240))
+	}
+	var parsed chatResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return nil, fmt.Errorf("decode envelope: %w", err)
+	}
+	if len(parsed.Choices) == 0 {
+		return nil, errors.New("groq: empty choices")
+	}
+	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+
+	var out PatentComparisonResult
+	if err := json.Unmarshal([]byte(content), &out); err != nil {
+		return nil, fmt.Errorf("decode comparison: %w (raw: %s)", err, truncate(content, 200))
+	}
+	if out.SimilarityScore < 0 {
+		out.SimilarityScore = 0
+	}
+	if out.SimilarityScore > 1 {
+		out.SimilarityScore = 1
+	}
+	if out.Recommendation == "" {
+		out.Recommendation = "inconclusivo"
+	}
+	return &out, nil
+}
+
+func buildComparePrompt(titleA, abstractA, ipcA, filingA, titleB, abstractB, ipcB, filingB string) string {
+	trim := func(s string, n int) string {
+		if len(s) > n { return s[:n] }
+		return s
+	}
+	return fmt.Sprintf(`DOCUMENTO A — PI para comparação:
+Título: %s
+Categoria IPC: %s
+Data de depósito: %s
+Resumo: %s
+
+DOCUMENTO B — PI para comparação:
+Título: %s
+Categoria IPC: %s
+Data de depósito: %s
+Resumo: %s
+
+Compare os dois documentos e retorne APENAS um JSON válido conforme o schema pedido.`,
+		trim(titleA, 300), strOrDash(ipcA), strOrDash(filingA), trim(abstractA, 2000),
+		trim(titleB, 300), strOrDash(ipcB), strOrDash(filingB), trim(abstractB, 2000),
+	)
+}
+
 // Classify pede ao LLM a classificação completa. Erro indica fallback necessário.
 func (c *Client) Classify(ctx context.Context, dept, title, abstract string) (*Classification, error) {
 	body := chatRequest{
@@ -145,6 +242,45 @@ func (c *Client) Classify(ctx context.Context, dept, title, abstract string) (*C
 	return &out, nil
 }
 
+// RawChat sends an arbitrary chat payload to Groq and returns the first
+// choice's content as a raw string. Used by services that build their own
+// prompt structures (e.g., SmartFilingService claim generation).
+func (c *Client) RawChat(ctx context.Context, payload any) (string, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return "", fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("groq returned %d: %s", resp.StatusCode, truncate(string(respBody), 240))
+	}
+	var parsed chatResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", fmt.Errorf("decode envelope: %w", err)
+	}
+	if len(parsed.Choices) == 0 {
+		return "", errors.New("groq: empty choices")
+	}
+	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	return strings.TrimSpace(content), nil
+}
+
 func buildUserPrompt(dept, title, abstract string) string {
 	if len(abstract) > 3000 {
 		abstract = abstract[:3000]
@@ -202,6 +338,29 @@ type chatResponse struct {
 }
 
 // ─── prompt ────────────────────────────────────────────────────────────────
+
+const compareSystemPrompt = `Você é um perito em Propriedade Intelectual (PI) brasileiro especializado em
+análise de conflito de patentes para o NIT-UFOP.
+
+Sua tarefa: comparar dois documentos de PI e determinar se existe conflito de novidade/reivindicação.
+
+Retorne APENAS JSON válido (sem markdown) com exatamente estes campos:
+{
+  "similarity_score": <0.0-1.0, quão similares são os objetos técnicos>,
+  "conflict_areas": [<strings descrevendo áreas de sobreposição técnica, max 4>],
+  "differentiating_claims": [<strings descrevendo o que distingue cada documento, max 4>],
+  "recommendation": "<um de: 'possivel_infracao' | 'sem_conflito' | 'inconclusivo'>",
+  "narrative": "<análise PT-BR em 3-5 frases, max 600 chars>",
+  "patent_a_strengths": [<pontos fortes da PI A, max 3>],
+  "patent_b_strengths": [<pontos fortes da PI B, max 3>]
+}
+
+CRITÉRIOS:
+- "possivel_infracao": objetos técnicos sobrepostos + reivindicações similares + mesmo campo de aplicação
+- "sem_conflito": técnicas ou aplicações claramente distintas (similarity_score < 0.35)
+- "inconclusivo": alguma sobreposição mas insuficiente para conclusão (0.35 ≤ score < 0.65)
+
+LEMBRE: no Brasil vale first-to-file (quem depositou primeiro tem prioridade).`
 
 const systemPrompt = `Você é um especialista em Propriedade Intelectual (PI) brasileiro
 trabalhando com o NIT-UFOP. Sua tarefa é avaliar trabalhos acadêmicos quanto ao

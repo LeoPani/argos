@@ -109,14 +109,16 @@ func NewRouter(deps Deps) http.Handler {
 		mux.HandleFunc("GET /api/v1/stats", stats.Get)
 	}
 
-	// ── Arbitration AI (subjects + verdict) ───────────────────────────────
+	// ── Arbitration AI (subjects + verdict + quick compare) ──────────────
 	if deps.ArbitrationAI != nil {
 		arb := NewArbitrationHandler(deps.ArbitrationAI)
-		mux.HandleFunc("GET /api/v1/disputes/{id}/subjects",       arb.ListSubjects)
-		mux.HandleFunc("POST /api/v1/disputes/{id}/subjects",      arb.AddSubject)
+		mux.HandleFunc("GET /api/v1/disputes/{id}/subjects",           arb.ListSubjects)
+		mux.HandleFunc("POST /api/v1/disputes/{id}/subjects",          arb.AddSubject)
 		mux.HandleFunc("DELETE /api/v1/disputes/subjects/{subjectId}", arb.DeleteSubject)
-		mux.HandleFunc("POST /api/v1/disputes/{id}/analyze",       arb.Analyze)
-		mux.HandleFunc("GET /api/v1/disputes/{id}/verdict",        arb.LatestVerdict)
+		mux.HandleFunc("POST /api/v1/disputes/{id}/analyze",           arb.Analyze)
+		mux.HandleFunc("GET /api/v1/disputes/{id}/verdict",            arb.LatestVerdict)
+		// Quick compare (no dispute required)
+		mux.HandleFunc("POST /api/v1/disputes/compare",                arb.ComparePatents)
 	}
 
 	// ── TT Contracts ──────────────────────────────────────────────────────
@@ -210,8 +212,9 @@ func NewRouter(deps Deps) http.Handler {
 	// ── INPI publications (extraído das RPIs via Python scraper) ─────────
 	if deps.INPIPublicationService != nil {
 		ip := NewINPIPublicationHandler(deps.INPIPublicationService)
-		mux.HandleFunc("GET /api/v1/inpi-publications/stats", ip.Stats)
-		mux.HandleFunc("GET /api/v1/inpi-publications/ufop",  ip.ListUFOP)
+		mux.HandleFunc("GET /api/v1/inpi-publications/stats",    ip.Stats)
+		mux.HandleFunc("GET /api/v1/inpi-publications/ufop",     ip.ListUFOP)
+		mux.HandleFunc("GET /api/v1/inpi-publications/timeline", ip.Timeline)
 	}
 
 	// ── Chat threads + messages ───────────────────────────────────────────

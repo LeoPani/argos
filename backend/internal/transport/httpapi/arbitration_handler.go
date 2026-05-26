@@ -102,6 +102,27 @@ func (h *ArbitrationHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	httputil.JSON(w, http.StatusOK, verdict)
 }
 
+// ComparePatents — POST /api/v1/disputes/compare
+// Lightweight quick-compare — no dispute required.
+func (h *ArbitrationHandler) ComparePatents(w http.ResponseWriter, r *http.Request) {
+	var req service.PIComparisonRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json", "message": err.Error()})
+		return
+	}
+	if req.PatentAID == 0 || req.PatentBID == 0 {
+		httputil.JSON(w, http.StatusBadRequest, map[string]any{"error": "patent_a_id and patent_b_id required"})
+		return
+	}
+
+	result, err := h.svc.ComparePatents(r.Context(), req.PatentAID, req.PatentBID)
+	if err != nil {
+		httputil.JSON(w, http.StatusBadRequest, map[string]any{"error": "compare_failed", "message": err.Error()})
+		return
+	}
+	httputil.JSON(w, http.StatusOK, result)
+}
+
 // LatestVerdict — GET /api/v1/disputes/{id}/verdict
 func (h *ArbitrationHandler) LatestVerdict(w http.ResponseWriter, r *http.Request) {
 	did, err := strconv.ParseInt(r.PathValue("id"), 10, 64)

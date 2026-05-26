@@ -22,6 +22,7 @@ import type {
   CalendarResponse, TTTemplate,
   AnalysisModeResponse,
   IPTimestamp,
+  INPITimelineResponse,
 } from "./types";
 
 const SWR_OPTIONS = {
@@ -294,5 +295,15 @@ export function useTimestamps(limit = 20, offset = 0) {
     ["/api/v1/timestamps", limit, offset],
     () => api.timestamps.list(limit, offset),
     SWR_OPTIONS
+  );
+}
+
+// ─── INPI Publications Timeline ───────────────────────────────────────────────
+
+export function useINPITimeline(limit = 50) {
+  return useSWR<INPITimelineResponse>(
+    ["/api/v1/inpi-publications/timeline", limit],
+    () => api.inpi.timeline(limit),
+    { ...SWR_OPTIONS, refreshInterval: 300_000 } // 5 min — dados mudam raramente
   );
 }

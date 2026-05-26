@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/lib/pq"
 )
@@ -67,6 +68,53 @@ func (s *INPIPublicationService) Stats(ctx context.Context) (*INPIStats, error) 
 		}
 	}
 	return stats, nil
+}
+
+// TimelinePoint é um ponto no gráfico temporal de despachos INPI.
+type TimelinePoint struct {
+	Period string `json:"period"` // "2024-01" ou "RPI 2890"
+	RPI    int    `json:"rpi"`    // número da RPI
+	Total  int64  `json:"total"`  // total de despachos no período
+	UFOP   int64  `json:"ufop"`   // despachos is_ufop no período
+}
+
+// Timeline agrupa despachos por RPI number para mostrar evolução temporal.
+// Retorna os últimos `limit` RPIs em ordem ascendente (mais antigo → mais recente).
+func (s *INPIPublicationService) Timeline(ctx context.Context, limit int) ([]TimelinePoint, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	// Subquery pega os N RPIs mais recentes, depois agrega de forma ascendente
+	q := fmt.Sprintf(`
+		SELECT rpi_number,
+		       COUNT(*) AS total,
+		       COUNT(*) FILTER (WHERE is_ufop) AS ufop
+		FROM inpi_publications
+		WHERE rpi_number IN (
+		  SELECT DISTINCT rpi_number
+		  FROM inpi_publications
+		  ORDER BY rpi_number DESC
+		  LIMIT %d
+		)
+		GROUP BY rpi_number
+		ORDER BY rpi_number ASC`, limit)
+
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return []TimelinePoint{}, nil // table may not exist
+	}
+	defer rows.Close()
+
+	out := make([]TimelinePoint, 0, limit)
+	for rows.Next() {
+		var pt TimelinePoint
+		if err := rows.Scan(&pt.RPI, &pt.Total, &pt.UFOP); err != nil {
+			continue
+		}
+		pt.Period = fmt.Sprintf("RPI %d", pt.RPI)
+		out = append(out, pt)
+	}
+	return out, nil
 }
 
 // ListUFOP — despachos UFOP recentes. Útil pra mostrar no dashboard.

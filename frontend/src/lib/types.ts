@@ -178,6 +178,24 @@ export interface ArbitrationVerdict {
   created_at: string;
 }
 
+// ─── PI Direct Comparison ────────────────────────────────────────────────────
+
+export type CompareRecommendation = "possivel_infracao" | "sem_conflito" | "inconclusivo";
+
+export interface PIComparisonResult {
+  patent_a: Patent;
+  patent_b: Patent;
+  method: "llm_groq" | "heuristic";
+  similarity_score: number;           // 0.0–1.0
+  conflict_areas: string[];
+  differentiating_claims: string[];
+  recommendation: CompareRecommendation;
+  narrative: string;
+  patent_a_strengths: string[];
+  patent_b_strengths: string[];
+  priority_winner: "A" | "B" | "equal";
+}
+
 // ─── TT Contracts ────────────────────────────────────────────────────────────
 
 export type LicenseKind = "exclusive" | "non_exclusive" | "sole";
@@ -720,7 +738,7 @@ export interface SearchResponse {
 // ─── Semantic search (TF-IDF + cosine, sem deps externas) ──────────────────
 
 export interface SemanticHit {
-  kind: "ufop_opp" | "patent";
+  kind: "ufop_opp" | "patent" | "inpi";
   id: number;
   title: string;
   snippet: string;
@@ -810,6 +828,9 @@ export interface StatsCounts {
   disputes_open: number;
   ufop_opportunities: number;
   ufop_high: number;
+  inpi_publications: number;
+  latest_rpi: number;
+  ip_timestamps: number;
 }
 
 export interface IPCSlice {
@@ -882,4 +903,18 @@ export interface IPTimestampCreateRequest {
   description: string;
   authors: string[];
   category: string;
+}
+
+// ─── INPI Timeline ───────────────────────────────────────────────────────────
+
+export interface INPITimelinePoint {
+  period: string;  // "RPI 2890"
+  rpi: number;
+  total: number;   // despachos total
+  ufop: number;    // despachos UFOP
+}
+
+export interface INPITimelineResponse {
+  count: number;
+  points: INPITimelinePoint[];
 }

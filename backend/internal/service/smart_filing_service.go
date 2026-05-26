@@ -30,11 +30,13 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
 
 	"github.com/LeoPani/argos/backend/internal/ai"
+	"github.com/LeoPani/argos/backend/internal/ai/groqclassifier"
 	"github.com/LeoPani/argos/backend/internal/domain"
 	"github.com/LeoPani/argos/backend/internal/repository"
 )
@@ -43,10 +45,17 @@ import (
 type SmartFilingService struct {
 	ai      ai.AIService
 	patents repository.PatentRepository
+	groq    *groqclassifier.Client // optional; nil → template claim
 }
 
 func NewSmartFilingService(ai ai.AIService, patents repository.PatentRepository) *SmartFilingService {
 	return &SmartFilingService{ai: ai, patents: patents}
+}
+
+// WithGroq enables LLM-generated claim drafting.
+func (s *SmartFilingService) WithGroq(gc *groqclassifier.Client) *SmartFilingService {
+	s.groq = gc
+	return s
 }
 
 // FilingInput is the inventor's draft.
@@ -187,10 +196,130 @@ func (s *SmartFilingService) Analyze(ctx context.Context, in FilingInput) (*Fili
 	}
 	out.NextSteps = nextSteps
 
-	// ── 5. Generate claim template ────────────────────────────────────
-	out.SuggestedClaim = generateClaim(in, out)
+	// ── 5. Generate claim (Groq LLM if available, else template) ────────
+	if s.groq != nil {
+		if claim, err := s.generateClaimWithGroq(ctx, in, out); err == nil && claim != "" {
+			out.SuggestedClaim = claim
+		} else {
+			out.SuggestedClaim = generateClaim(in, out)
+		}
+	} else {
+		out.SuggestedClaim = generateClaim(in, out)
+	}
 
 	return out, nil
+}
+
+// generateClaimWithGroq uses llama-3.3-70b to draft a real independent claim
+// following Brazilian INPI standards (Lei 9.279/96 + Diretrizes INPI 2023).
+func (s *SmartFilingService) generateClaimWithGroq(ctx context.Context, in FilingInput, sug *FilingSuggestion) (string, error) {
+	ipcNote := ""
+	if sug.IPCLetter != "" {
+		ipcNote = fmt.Sprintf("Categoria IPC sugerida: %s (%s).", sug.IPCLetter, sug.IPCName)
+	}
+
+	priorArtNote := ""
+	if len(sug.FilingPriorArtHits) > 0 {
+		titles := make([]string, 0, len(sug.FilingPriorArtHits))
+		for _, h := range sug.FilingPriorArtHits {
+			titles = append(titles, h.Title)
+		}
+		priorArtNote = fmt.Sprintf("Prior art interno encontrado (evitar sobreposição): %s.", strings.Join(titles, "; "))
+	}
+
+	// Art. 10 exclusion check — detect excluded subject matter in title/abstract
+	art10Alert := detectArt10Exclusions(in.Title + " " + in.Abstract)
+
+	userMsg := fmt.Sprintf(`Elabore uma reivindicação independente para depósito no INPI conforme Lei 9.279/96.
+
+TÍTULO: %s
+ABSTRACT: %s
+CAMPO: %s
+%s
+%s
+%s
+
+Instruções:
+1. A reivindicação deve começar com o título da invenção (gerundio ou substantivo).
+2. Use a estrutura: "[TÍTULO], caracterizado(a) por: a) [elemento 1]; b) [elemento 2]; ...".
+3. Seja técnico e específico — extraia os diferenciais reais do abstract.
+4. Adicione 2 reivindicações dependentes (claim 2 e claim 3).
+5. Ao final, inclua uma seção "ALERTAS ART. 10 LPI" se houver exclusões potenciais.
+6. Responda em JSON: {"claim": "...", "dependent_claims": ["...", "..."], "art10_alerts": ["..."]}`,
+		in.Title, in.Abstract, in.Field, ipcNote, priorArtNote, art10Alert)
+
+	type groqMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	payload := map[string]any{
+		"model":       "llama-3.3-70b-versatile",
+		"max_tokens":  1200,
+		"temperature": 0.4,
+		"messages": []groqMsg{
+			{Role: "system", Content: "Você é um agente de Propriedade Intelectual especializado em reivindicações de patente brasileiras (INPI). Responda sempre em JSON válido."},
+			{Role: "user", Content: userMsg},
+		},
+	}
+
+	result, err := s.groq.RawChat(ctx, payload)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse JSON response
+	type claimResp struct {
+		Claim           string   `json:"claim"`
+		DependentClaims []string `json:"dependent_claims"`
+		Art10Alerts     []string `json:"art10_alerts"`
+	}
+	var cr claimResp
+	if err := json.Unmarshal([]byte(result), &cr); err != nil {
+		// If JSON parse fails, return raw text
+		return result, nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "REIVINDICAÇÃO 1 (independente)\n\n%s\n\n", cr.Claim)
+	for i, dep := range cr.DependentClaims {
+		fmt.Fprintf(&sb, "REIVINDICAÇÃO %d (dependente)\n\n%s\n\n", i+2, dep)
+	}
+	if len(cr.Art10Alerts) > 0 {
+		sb.WriteString("⚠️ ALERTAS ART. 10 LPI (matéria excluída de patenteabilidade)\n")
+		for _, a := range cr.Art10Alerts {
+			fmt.Fprintf(&sb, "• %s\n", a)
+		}
+		sb.WriteString("\nConsulte um agente de PI antes de depositar.\n")
+	}
+	return sb.String(), nil
+}
+
+// detectArt10Exclusions checks for keywords associated with Art. 10 LPI exclusions
+// (software per se, business methods, mental acts, printed matter, etc.)
+func detectArt10Exclusions(text string) string {
+	text = strings.ToLower(text)
+	type exclusion struct{ keywords []string; desc string }
+	exclusions := []exclusion{
+		{[]string{"software", "programa de computador", "aplicativo", "app"}, "Art. 10, V: programas de computador per se são excluídos. Descreva o efeito técnico do hardware/sistema."},
+		{[]string{"método de negócio", "modelo de negócio", "método comercial", "plano comercial"}, "Art. 10, III: métodos comerciais/de negócio são excluídos. Foque no processo técnico."},
+		{[]string{"método matemático", "algoritmo", "cálculo"}, "Art. 10, I: métodos matemáticos são excluídos. Patentear apenas a aplicação técnica."},
+		{[]string{"regras de jogo", "método de ensino", "método pedagógico"}, "Art. 10, IV: regras/métodos pedagógicos são excluídos."},
+		{[]string{"obra literária", "musical", "artística", "cinematográfica"}, "Art. 10, VII: obras intelectuais/artísticas são protegidas por direito autoral, não patente."},
+	}
+
+	var found []string
+	for _, ex := range exclusions {
+		for _, kw := range ex.keywords {
+			if strings.Contains(text, kw) {
+				found = append(found, ex.desc)
+				break
+			}
+		}
+	}
+	if len(found) == 0 {
+		return ""
+	}
+	return "ALERTA ART. 10 LPI: " + strings.Join(found, " | ")
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

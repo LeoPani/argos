@@ -8,6 +8,7 @@ import (
 	"github.com/LeoPani/argos/backend/pkg/httputil"
 )
 
+
 type INPIPublicationHandler struct {
 	svc *service.INPIPublicationService
 }
@@ -42,5 +43,25 @@ func (h *INPIPublicationHandler) ListUFOP(w http.ResponseWriter, r *http.Request
 	httputil.JSON(w, http.StatusOK, map[string]any{
 		"count": len(items),
 		"items": items,
+	})
+}
+
+// Timeline — GET /api/v1/inpi-publications/timeline?limit=50
+// Returns despacho counts grouped by RPI number, sorted ascending.
+func (h *INPIPublicationHandler) Timeline(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	points, err := h.svc.Timeline(r.Context(), limit)
+	if err != nil {
+		httputil.Error(w, err)
+		return
+	}
+	httputil.JSON(w, http.StatusOK, map[string]any{
+		"count":  len(points),
+		"points": points,
 	})
 }

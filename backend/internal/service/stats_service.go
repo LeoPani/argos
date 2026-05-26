@@ -18,14 +18,17 @@ import (
 
 // StatsCounts is the top-row KPI grid.
 type StatsCounts struct {
-	Patents           int64 `json:"patents"`
-	PatentsClassified int64 `json:"patents_classified"`
-	Trademarks        int64 `json:"trademarks"`
-	TrademarksActive  int64 `json:"trademarks_active"`
-	Disputes          int64 `json:"disputes"`
-	DisputesOpen      int64 `json:"disputes_open"`
-	UFOPOpportunities int64 `json:"ufop_opportunities"`
-	UFOPHigh          int64 `json:"ufop_high"`
+	Patents            int64 `json:"patents"`
+	PatentsClassified  int64 `json:"patents_classified"`
+	Trademarks         int64 `json:"trademarks"`
+	TrademarksActive   int64 `json:"trademarks_active"`
+	Disputes           int64 `json:"disputes"`
+	DisputesOpen       int64 `json:"disputes_open"`
+	UFOPOpportunities  int64 `json:"ufop_opportunities"`
+	UFOPHigh           int64 `json:"ufop_high"`
+	INPIPublications   int64 `json:"inpi_publications"`  // despachos from RPI harvest
+	LatestRPI          int64 `json:"latest_rpi"`         // most recent RPI number ingested
+	IPTimestamps       int64 `json:"ip_timestamps"`      // proof-of-existence records
 }
 
 // IPCSlice is one entry in the IPC distribution chart.
@@ -131,6 +134,9 @@ func (s *StatsService) counts(ctx context.Context) (StatsCounts, error) {
 		// patenteável (legado antes da migration 0014).
 		{`SELECT COUNT(*) FROM ufop_opportunities WHERE COALESCE(is_patentable, true)`, &c.UFOPOpportunities},
 		{`SELECT COUNT(*) FROM ufop_opportunities WHERE opportunity_level = 'high' AND COALESCE(is_patentable, true)`, &c.UFOPHigh},
+		{`SELECT COUNT(*) FROM inpi_publications`, &c.INPIPublications},
+		{`SELECT COALESCE(MAX(rpi_number), 0) FROM inpi_publications`, &c.LatestRPI},
+		{`SELECT COUNT(*) FROM ip_timestamps`, &c.IPTimestamps},
 	}
 
 	for _, q := range queries {

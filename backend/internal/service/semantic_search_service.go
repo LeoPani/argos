@@ -259,6 +259,28 @@ func (s *SemanticSearchService) fetchCorpus(ctx context.Context) ([]rawDoc, erro
 		}
 	}
 
+	// INPI publications — despachos das RPIs (harvest semanal).
+	// Enriquece o índice com ~6k registros de publicações oficiais INPI
+	// sem custo adicional de infra (mesma pipeline TF-IDF).
+	rows3, err := s.db.QueryContext(ctx, `
+		SELECT id,
+		       COALESCE(process_number,'') || ' ' || COALESCE(title,'') AS title,
+		       COALESCE(applicant,'') AS snippet
+		FROM inpi_publications
+		WHERE title != '' OR applicant != ''
+		LIMIT 6000`)
+	if err == nil {
+		defer rows3.Close()
+		for rows3.Next() {
+			var d rawDoc
+			d.Kind = "inpi"
+			if err := rows3.Scan(&d.ID, &d.Title, &d.Snippet); err == nil {
+				d.URL = ""
+				out = append(out, d)
+			}
+		}
+	}
+
 	return out, nil
 }
 

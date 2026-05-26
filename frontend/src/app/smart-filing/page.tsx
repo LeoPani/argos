@@ -20,7 +20,7 @@ import { ipcLabel } from "@/lib/utils";
 import type { FilingSuggestion } from "@/lib/types";
 import {
   Sparkles, ArrowLeft, BookOpen, Lightbulb, AlertCircle,
-  CheckCircle2, FileText, RefreshCw, X, ExternalLink,
+  CheckCircle2, FileText, RefreshCw, X, ExternalLink, Zap, Copy,
 } from "lucide-react";
 
 const SAMPLE_FILINGS = [
@@ -290,23 +290,8 @@ function SuggestionResult({ sug }: { sug: FilingSuggestion }) {
         )}
       </Card>
 
-      {/* Suggested claim template */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Lightbulb size={14} className="text-amber-400" />
-            Template de reivindicação (rascunho)
-          </CardTitle>
-          <Button variant="ghost" size="sm"
-            onClick={() => navigator.clipboard.writeText(sug.suggested_claim)}>
-            Copiar
-          </Button>
-        </CardHeader>
-        <pre className="p-3 rounded text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed"
-          style={{ background: "var(--surface-2)", color: "var(--text-muted)" }}>
-          {sug.suggested_claim}
-        </pre>
-      </Card>
+      {/* Suggested claim */}
+      <ClaimCard claim={sug.suggested_claim} />
 
       {/* Next steps */}
       <Card>
@@ -355,5 +340,153 @@ function SimilarityBar({ pct }: { pct: number }) {
     <div className="shrink-0 w-12 text-right">
       <p className="text-sm font-mono font-semibold" style={{ color }}>{pct}%</p>
     </div>
+  );
+}
+
+// ─── ClaimCard — renders Groq claim with visual hierarchy ─────────────────────
+
+function ClaimCard({ claim }: { claim: string }) {
+  const isGroq = claim.includes("REIVINDICAÇÃO 1 (independente)");
+  const hasArt10 = claim.includes("ART. 10 LPI");
+
+  // Split into sections on lines starting with REIVINDICAÇÃO or ⚠️
+  const sections = parseClaimSections(claim);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Lightbulb size={14} className="text-amber-400" />
+          {isGroq ? "Reivindicação gerada por IA" : "Template de reivindicação (rascunho)"}
+        </CardTitle>
+        <div className="flex items-center gap-2">
+          {isGroq && (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+              style={{ background: "#7c3aed20", border: "1px solid #7c3aed60", color: "#a78bfa" }}>
+              <Zap size={10} />
+              Groq llama-3.3-70b
+            </span>
+          )}
+          <Button variant="ghost" size="sm"
+            onClick={() => navigator.clipboard.writeText(claim)}>
+            <Copy size={11} /> Copiar
+          </Button>
+        </div>
+      </CardHeader>
+
+      {/* Structured rendering */}
+      <div className="space-y-3">
+        {sections.map((sec, i) => (
+          <ClaimSection key={i} section={sec} />
+        ))}
+      </div>
+
+      {/* Methodological note */}
+      <p className="text-xs mt-4 pt-3" style={{ borderTop: "1px solid var(--border)", color: "var(--text-muted)" }}>
+        {isGroq
+          ? "Gerado por LLM — revise com um agente de PI antes do depósito. Não constitui aconselhamento jurídico."
+          : "Template estrutural — baseado em Diretrizes INPI 2023. Revisar com agente antes do depósito."}
+        {hasArt10 && (
+          <span className="ml-2 text-amber-400 font-medium">
+            ⚠ Contém alertas Art. 10 LPI — ver abaixo.
+          </span>
+        )}
+      </p>
+    </Card>
+  );
+}
+
+type ClaimSection = { kind: "claim" | "alert" | "other"; title: string; body: string };
+
+function parseClaimSections(raw: string): ClaimSection[] {
+  const lines = raw.split("\n");
+  const sections: ClaimSection[] = [];
+  let cur: ClaimSection | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (cur) cur.body += "\n";
+      continue;
+    }
+
+    // Section header patterns
+    if (/^REIVINDICAÇÃO\s+\d+/i.test(trimmed)) {
+      if (cur) sections.push(cur);
+      cur = { kind: "claim", title: trimmed, body: "" };
+      continue;
+    }
+    if (/^⚠️?\s*ALERTA/i.test(trimmed) || /^ALERTA\s+ART\./i.test(trimmed)) {
+      if (cur) sections.push(cur);
+      cur = { kind: "alert", title: trimmed, body: "" };
+      continue;
+    }
+    // Legacy template header
+    if (/^REIVINDICAÇÕES\s+(DEPENDENTES|INDEPENDENTES)/i.test(trimmed)) {
+      if (cur) sections.push(cur);
+      cur = { kind: "claim", title: trimmed, body: "" };
+      continue;
+    }
+    // Notes / NOTA lines
+    if (/^NOTA:/i.test(trimmed)) {
+      if (cur) sections.push(cur);
+      cur = { kind: "other", title: "Nota", body: trimmed };
+      continue;
+    }
+
+    if (cur) {
+      cur.body += (cur.body ? "\n" : "") + trimmed;
+    } else {
+      cur = { kind: "other", title: "", body: trimmed };
+    }
+  }
+  if (cur && (cur.title || cur.body.trim())) sections.push(cur);
+  return sections.filter(s => s.body.trim() || s.title.trim());
+}
+
+function ClaimSection({ section }: { section: ClaimSection }) {
+  if (section.kind === "alert") {
+    return (
+      <div className="p-3 rounded-lg" style={{ background: "#78350f20", border: "1px solid #f59e0b40" }}>
+        <p className="text-xs font-semibold text-amber-400 mb-1.5">{section.title}</p>
+        <div className="space-y-1">
+          {section.body.split("\n").filter(Boolean).map((l, i) => (
+            <p key={i} className="text-xs" style={{ color: "#fde68a" }}>{l}</p>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (section.kind === "claim") {
+    const isIndependent = /independente/i.test(section.title);
+    const titleColor = isIndependent ? "#a78bfa" : "#94a3b8";
+    const borderColor = isIndependent ? "#7c3aed40" : "var(--border)";
+    return (
+      <div className="p-3 rounded-lg"
+        style={{ background: "var(--surface-2)", border: `1px solid ${borderColor}` }}>
+        <p className="text-xs font-semibold mb-2" style={{ color: titleColor }}>
+          {section.title}
+        </p>
+        <div className="space-y-1">
+          {section.body.split("\n").filter(Boolean).map((l, i) => {
+            const isLettered = /^[a-z]\)/.test(l);
+            return (
+              <p key={i} className="text-sm leading-relaxed"
+                style={{ color: isLettered ? "var(--text)" : "var(--text-muted)", paddingLeft: isLettered ? "0.75rem" : 0 }}>
+                {l}
+              </p>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // "other" / notes
+  return (
+    <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>
+      {section.body}
+    </p>
   );
 }
