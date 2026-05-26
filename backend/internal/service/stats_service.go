@@ -11,6 +11,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -69,14 +70,46 @@ type StatsResponse struct {
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
+const statsCacheTTL = 30 * time.Second
+
 // StatsService computes dashboard aggregations directly from the database.
-type StatsService struct{ db *sql.DB }
+// Results are cached for statsCacheTTL to avoid hammering the DB on every
+// chat request and dashboard refresh.
+type StatsService struct {
+	db        *sql.DB
+	mu        sync.Mutex
+	cached    *StatsResponse
+	cachedAt  time.Time
+}
 
 // NewStatsService creates the service.
 func NewStatsService(db *sql.DB) *StatsService { return &StatsService{db: db} }
 
-// Get assembles the full dashboard payload.
+// Get assembles the full dashboard payload, serving from cache when fresh.
 func (s *StatsService) Get(ctx context.Context) (*StatsResponse, error) {
+	s.mu.Lock()
+	if s.cached != nil && time.Since(s.cachedAt) < statsCacheTTL {
+		cached := s.cached
+		s.mu.Unlock()
+		return cached, nil
+	}
+	s.mu.Unlock()
+
+	resp, err := s.compute(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	s.cached = resp
+	s.cachedAt = time.Now()
+	s.mu.Unlock()
+
+	return resp, nil
+}
+
+// compute does the actual DB work (called by Get when cache is stale).
+func (s *StatsService) compute(ctx context.Context) (*StatsResponse, error) {
 	counts, err := s.counts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("stats counts: %w", err)

@@ -96,16 +96,22 @@ func run() error {
 	publicationRepo := pg.NewPublicationRepo(db)
 	priorArtSvc := service.NewPriorArtService(patentRepo, trademarkRepo, publicationRepo)
 
+	// --- Groq client (single shared instance, nil if key absent) ---
+	var groqClient *groqclassifier.Client
+	if groqKey := os.Getenv("GROQ_API_KEY"); groqKey != "" {
+		groqClient = groqclassifier.New(groqclassifier.Config{APIKey: groqKey})
+		if groqClient != nil {
+			log.Info("groq client ready", "model", groqClient.Model())
+		}
+	}
+
 	ufopRepo := pg.NewUFOPRepo(db)
 	oaiClient := ufop.NewOAIClient(log)
 	portalScraper := ufop.NewPortalScraper(log)
 	analyzer := ufop.NewAnalyzer(aiSvc).WithLogger(log)
-	if groqKey := os.Getenv("GROQ_API_KEY"); groqKey != "" {
-		gc := groqclassifier.New(groqclassifier.Config{APIKey: groqKey})
-		if gc != nil {
-			analyzer = analyzer.WithGroq(gc)
-			log.Info("groq classifier enabled", "model", gc.Model())
-		}
+	if groqClient != nil {
+		analyzer = analyzer.WithGroq(groqClient)
+		log.Info("groq classifier enabled for ufop analyzer")
 	}
 	ufopSvc := service.NewUFOPService(ufopRepo, publicationRepo, oaiClient, portalScraper, analyzer, log)
 
@@ -118,12 +124,9 @@ func run() error {
 
 	arbitrationRepo := pg.NewArbitrationRepo(db)
 	arbitrationAI := service.NewArbitrationAI(arbitrationRepo, patentRepo, trademarkRepo, disputeRepo)
-	if groqKey := os.Getenv("GROQ_API_KEY"); groqKey != "" {
-		gc := groqclassifier.New(groqclassifier.Config{APIKey: groqKey})
-		if gc != nil {
-			arbitrationAI = arbitrationAI.WithGroq(gc)
-			log.Info("arbitration groq llm enabled", "model", gc.Model())
-		}
+	if groqClient != nil {
+		arbitrationAI = arbitrationAI.WithGroq(groqClient)
+		log.Info("groq llm enabled for arbitration")
 	}
 
 	ttContractRepo := pg.NewTTContractRepo(db)
@@ -143,12 +146,9 @@ func run() error {
 	enrichmentSvc := service.NewEnrichmentService(db, patentRepo, lensPatentClient)
 
 	smartFilingSvc := service.NewSmartFilingService(aiSvc, patentRepo)
-	if groqKey := os.Getenv("GROQ_API_KEY"); groqKey != "" {
-		gc := groqclassifier.New(groqclassifier.Config{APIKey: groqKey})
-		if gc != nil {
-			smartFilingSvc = smartFilingSvc.WithGroq(gc)
-			log.Info("smart-filing groq claim generation enabled")
-		}
+	if groqClient != nil {
+		smartFilingSvc = smartFilingSvc.WithGroq(groqClient)
+		log.Info("groq claim generation enabled for smart-filing")
 	}
 
 	marketplaceSvc := service.NewMarketplaceService(db)

@@ -123,8 +123,8 @@ func (a *ArbitrationAI) ComparePatents(ctx context.Context, idA, idB int64) (*PI
 			filingB = pB.FilingDate.Format("02/01/2006")
 		}
 		llmRes, err := a.groq.ComparePatents(ctx,
-			pA.Title, pA.Abstract, string(pA.IPCCategory), filingA,
-			pB.Title, pB.Abstract, string(pB.IPCCategory), filingB,
+			pA.Title, pA.Abstract, fmt.Sprintf("%d", pA.IPCCategory), filingA,
+			pB.Title, pB.Abstract, fmt.Sprintf("%d", pB.IPCCategory), filingB,
 		)
 		if err == nil {
 			result.Method                = "llm_groq"
@@ -186,7 +186,7 @@ func heuristicPatentCompare(a, b *domain.Patent) (
 	}
 
 	if ipcSame {
-		conflicts = append(conflicts, fmt.Sprintf("Mesma categoria IPC: %s", a.IPCCategory))
+		conflicts = append(conflicts, fmt.Sprintf("Mesma categoria IPC: %d", a.IPCCategory))
 	}
 
 	// Title words overlap.
@@ -197,7 +197,7 @@ func heuristicPatentCompare(a, b *domain.Patent) (
 
 	// Differentiators.
 	if !ipcSame {
-		diffs = append(diffs, fmt.Sprintf("Categorias IPC distintas (%s vs %s)", a.IPCCategory, b.IPCCategory))
+		diffs = append(diffs, fmt.Sprintf("Categorias IPC distintas (%d vs %d)", a.IPCCategory, b.IPCCategory))
 	}
 	la, lb := len(a.Abstract), len(b.Abstract)
 	if la > 0 && lb > 0 {

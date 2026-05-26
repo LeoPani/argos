@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -18,6 +18,7 @@ import {
   Briefcase,
   Calendar as CalendarIcon,
   ShieldCheck,
+  LogOut,
 } from "lucide-react";
 
 const nav = [
@@ -37,7 +38,14 @@ const nav = [
 ];
 
 export function Sidebar() {
-  const path = usePathname();
+  const path   = usePathname();
+  const router = useRouter();
+
+  async function handleLogout() {
+    await fetch("/api/auth/login", { method: "DELETE" });
+    router.push("/login");
+    router.refresh();
+  }
 
   return (
     <aside className="fixed inset-y-0 left-0 w-56 flex flex-col z-40"
@@ -98,7 +106,7 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom */}
-      <div className="px-2 py-3" style={{ borderTop: "1px solid var(--border)" }}>
+      <div className="px-2 py-3 flex flex-col gap-0.5" style={{ borderTop: "1px solid var(--border)" }}>
         <Link href="/config"
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all"
           style={{ color: "var(--text-muted)" }}
@@ -108,6 +116,16 @@ export function Sidebar() {
           <Settings size={16} />
           Configurações
         </Link>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all w-full text-left"
+          style={{ color: "var(--text-muted)" }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.08)"; (e.currentTarget as HTMLElement).style.color = "#f87171"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"; }}
+        >
+          <LogOut size={16} />
+          Sair
+        </button>
       </div>
     </aside>
   );
