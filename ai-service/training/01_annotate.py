@@ -39,6 +39,7 @@ Uso:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -56,7 +57,8 @@ DB_URL        = os.environ.get("DATABASE_URL",
     "postgres://argos:argos_dev@localhost:5432/argos")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
 GROQ_KEY      = os.environ.get("GROQ_API_KEY")
-SLEEP_S       = 0.5  # respeitar rate limit
+SLEEP_S       = 1.0   # respeitar rate limit (1s entre requests)
+MAX_RETRIES   = 6     # tentativas por item em caso de rate-limit
 
 # ─── Prompt template ────────────────────────────────────────────────────────
 
@@ -151,16 +153,37 @@ def annotate_with_anthropic(client, opp: dict, model: str) -> dict:
     )
     return _finalize(clean_json_response(msg.content[0].text), opp)
 
+def _parse_retry_after(err_msg: str) -> float:
+    """Extrai segundos do 'Please try again in Xm Ys.' da mensagem de rate-limit."""
+    m = re.search(r"try again in\s+(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?", str(err_msg), re.I)
+    if not m:
+        return 60.0
+    minutes = float(m.group(1) or 0)
+    seconds = float(m.group(2) or 0)
+    return minutes * 60 + seconds + 2  # +2s de margem
+
 def annotate_with_groq(client, opp: dict, model: str) -> dict:
-    msg = client.chat.completions.create(
-        model=model, max_tokens=512, temperature=0.0,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": build_user_prompt(opp)},
-        ],
-    )
-    return _finalize(clean_json_response(msg.choices[0].message.content), opp)
+    for attempt in range(MAX_RETRIES):
+        try:
+            msg = client.chat.completions.create(
+                model=model, max_tokens=512, temperature=0.0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": build_user_prompt(opp)},
+                ],
+            )
+            return _finalize(clean_json_response(msg.choices[0].message.content), opp)
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str or "rate_limit" in err_str.lower():
+                wait = _parse_retry_after(err_str)
+                if attempt < MAX_RETRIES - 1:
+                    tqdm.write(f"  [rate-limit] aguardando {wait:.0f}s (tentativa {attempt+1}/{MAX_RETRIES})")
+                    time.sleep(wait)
+                    continue
+            raise  # re-lança erros não-rate-limit ou última tentativa
+    raise RuntimeError(f"Rate-limit persistiu após {MAX_RETRIES} tentativas")
 
 def _finalize(raw_json: str, opp: dict) -> dict:
     parsed = json.loads(raw_json)
@@ -179,7 +202,8 @@ def pick_provider(force: str | None) -> tuple[str, str, object, callable]:
             from groq import Groq
         except ImportError:
             sys.exit("GROQ_API_KEY setado mas groq não instalado: pip install groq")
-        model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        # llama-3.1-8b-instant: 500k TPD (vs 100k do 70B) — suficiente pra ~400 ann/dia
+        model = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
         return "groq", model, Groq(api_key=GROQ_KEY), annotate_with_groq
 
     if want in ("auto", "anthropic") and ANTHROPIC_KEY:
@@ -236,12 +260,12 @@ def main() -> int:
                 ok += 1
                 time.sleep(SLEEP_S)
             except json.JSONDecodeError as e:
-                print(f"\n[parse fail] id={opp['id']}: {e}")
+                tqdm.write(f"[parse fail] id={opp['id']}: {e}")
                 err += 1
             except Exception as e:
-                print(f"\n[error] id={opp['id']}: {type(e).__name__}: {e}")
+                tqdm.write(f"[error] id={opp['id']}: {type(e).__name__}: {e}")
                 err += 1
-                time.sleep(2)  # backoff em erro
+                time.sleep(5)  # backoff em erro não-rate-limit
 
     print(f"\nDone. Anotados: {ok} · Erros: {err}")
     print(f"Output: {OUTPUT_PATH}")

@@ -53,33 +53,48 @@ RE_UFOP     = re.compile(r"\b(ufop|federal\s+de\s+ouro\s+preto|universidade\s+fe
 
 
 def list_recent_rpis(count: int) -> list[dict]:
-    """Faz scraping leve do índice HTML pra descobrir as últimas N RPIs."""
+    """Faz scraping do índice HTML do INPI pra descobrir as últimas N RPIs.
+
+    Desde ~RPI 2404 (jan/2017) a publicação é dividida em seções:
+      Patentes{NUM}.pdf, Marcas{NUM}.pdf, etc.
+    Os links no índice usam aspas simples e apontam direto ao PDF.
+    Estratégia: extrai todos os links Patentes{NUM}.pdf do índice principal.
+    """
     resp = requests.get(INDEX_URL, headers={"User-Agent": USER_AGENT}, timeout=30)
     resp.raise_for_status()
     html = resp.text
 
-    # O índice atual lista RPIs como links contendo /rpi/{NUM}/ ou similar.
-    # Padrão regex flexível: extrai número + URL relativa.
-    rpis = []
-    for m in re.finditer(r'href="([^"]*?(?:rpi[/_-]?(\d{3,5})[^"]*?))"', html, re.I):
-        url, num = urljoin(INDEX_URL, m.group(1)), int(m.group(2))
-        if not any(r["number"] == num for r in rpis):
-            rpis.append({"number": num, "index_url": url})
+    rpis: dict[int, dict] = {}
 
-    rpis.sort(key=lambda r: r["number"], reverse=True)
-    return rpis[:count]
+    # Padrão novo (pós-2404): href='https://revistas.inpi.gov.br/pdf/Patentes2890.pdf'
+    for m in re.finditer(r"href=['\"]([^'\"]+?Patentes(\d{3,5})\.pdf)['\"]", html, re.I):
+        pdf_url, num = m.group(1), int(m.group(2))
+        if num not in rpis:
+            rpis[num] = {"number": num, "pdf_url": pdf_url}
+
+    # Fallback padrão antigo (pré-2404): href="/rpi/2202/" com PDF dentro
+    if not rpis:
+        for m in re.finditer(r"href=['\"]([^'\"]*?(?:rpi[/_-]?(\d{3,5})[^'\"]*?))['\"]", html, re.I):
+            url, num = urljoin(INDEX_URL, m.group(1)), int(m.group(2))
+            if num not in rpis:
+                rpis[num] = {"number": num, "index_url": url, "pdf_url": None}
+
+    result = sorted(rpis.values(), key=lambda r: r["number"], reverse=True)
+    return result[:count]
 
 
 def find_pdf_in_index(index_url: str) -> str | None:
-    """Dado o HTML de uma RPI, extrai a URL do PDF principal."""
+    """Dado o HTML de uma RPI antiga (pré-2404), extrai a URL do PDF principal.
+    Para RPIs modernas, pdf_url já vem preenchido em list_recent_rpis.
+    """
     try:
         r = requests.get(index_url, headers={"User-Agent": USER_AGENT}, timeout=30)
         r.raise_for_status()
     except Exception:
         return None
 
-    # Procura .pdf na página da RPI
-    m = re.search(r'href="([^"]+\.pdf)"', r.text, re.I)
+    # Suporta aspas simples e duplas
+    m = re.search(r"href=['\"]([^'\"]+\.pdf)['\"]", r.text, re.I)
     if m:
         return urljoin(index_url, m.group(1))
     return None
@@ -108,7 +123,18 @@ def download_pdf(url: str, dest: Path) -> bool:
 
 
 def parse_pdf(pdf_path: Path, rpi_number: int) -> list[dict]:
-    """Extrai despachos do PDF. Heurística por seções e blocos."""
+    """Extrai despachos do PDF.
+
+    Suporta dois formatos:
+    - Formato antigo (pré-2404): blocos iniciando com código de despacho (1.1, 2.3, …)
+    - Formato novo (pós-2404): seções separadas por tipo (Patentes, Marcas…) com
+      entradas no padrão INPI:
+        (21) BR XX YYYY ZZZZZZ-D A2  Código 100.1 - Descrição do despacho
+        (22) DD/MM/AAAA
+        (71) Depositante
+        (54) Título
+        (57) Resumo
+    """
     despachos = []
     section = "unknown"
 
@@ -118,47 +144,104 @@ def parse_pdf(pdf_path: Path, rpi_number: int) -> list[dict]:
         print(f"[pdf open fail] {pdf_path}: {e}")
         return []
 
+    # Regex para formato novo: linha contendo (21) + número BR
+    RE_ENTRY_21  = re.compile(r"\(21\)\s+(BR\s*\d[\d\s]*-?\d[^(\n]*)")
+    RE_CODIGO    = re.compile(r"[Cc][oó]digo\s+([\w.]+)")
+    RE_DATE_22   = re.compile(r"\(22\)\s+(\d{2}/\d{2}/\d{4})")
+    RE_FIELD     = re.compile(r"^\s*\((\d+)\)\s+(.*)", re.M)
+
     try:
+        # Concatena todo o texto do PDF preservando estrutura
+        full_text = ""
         for page in pdf.pages:
-            text = page.extract_text() or ""
-            up   = text.upper()
+            t = page.extract_text() or ""
+            up = t.upper()
+            # Detecta seção pelas primeiras 300 chars da página
             if "PATENTES" in up[:300]:
                 section = "patentes"
             elif "MARCAS" in up[:300]:
                 section = "marcas"
             elif "DESENHO INDUSTRIAL" in up[:300] or "DESENHOS INDUSTRIAIS" in up[:300]:
                 section = "des_ind"
+            full_text += t + "\n"
 
-            # Cada bloco geralmente começa com código de despacho + nº processo
-            blocks = re.split(r"\n(?=\(?\d{1,2}\.\d{1,2}(?:\.\d{1,2})?\)?\s)", text)
-            for block in blocks:
+        # ── Tenta formato novo (busca por (21) com número BR) ──────────────────
+        if RE_ENTRY_21.search(full_text):
+            # Divide o texto em blocos a cada ocorrência de "(21)"
+            raw_blocks = re.split(r"(?=\(21\)\s+BR)", full_text)
+            for block in raw_blocks:
                 block = block.strip()
-                if len(block) < 20:
+                if not block or "(21)" not in block:
                     continue
+
                 m_proc = RE_PROCESS.search(block)
-                m_desp = RE_DESPACHO.search(block)
-                if not m_proc or not m_desp:
+                if not m_proc:
                     continue
+                process_number = m_proc.group(0).replace(" ", "")
 
-                ipcs    = RE_IPC.findall(block)
-                niceM   = RE_NICE.search(block)
-                niceCls = []
-                if niceM:
-                    niceCls = [int(x) for x in re.findall(r"\d+", niceM.group(1))][:30]
+                # Código de despacho: "Código 100.1" ou "[100.1]"
+                m_cod = RE_CODIGO.search(block)
+                despacho_code = m_cod.group(1) if m_cod else "unknown"
 
-                applicant = extract_applicant(block)
+                # Campos INPI por tag (71)=depositante, (54)=título, (57)=resumo
+                fields: dict[str, str] = {}
+                for m in RE_FIELD.finditer(block):
+                    tag, val = m.group(1), m.group(2).strip()
+                    if tag in fields:
+                        fields[tag] += " " + val
+                    else:
+                        fields[tag] = val
+
+                applicant = fields.get("71") or fields.get("73")
+                if applicant:
+                    applicant = applicant[:300]
+                title     = fields.get("54", "")[:500] or None
+                abstract  = fields.get("57", "")[:4000] or None
+                ipcs      = RE_IPC.findall(block)
+
                 despachos.append({
                     "rpi_number":     rpi_number,
                     "rpi_section":    section,
-                    "process_number": m_proc.group(0).replace(" ", ""),
-                    "despacho_code":  m_desp.group(1),
-                    "title":          extract_title(block),
+                    "process_number": process_number,
+                    "despacho_code":  despacho_code,
+                    "title":          title,
                     "applicant":      applicant,
                     "ipc_codes":      ipcs,
-                    "nice_class":     niceCls,
+                    "nice_class":     [],
                     "raw_text":       block[:4000],
-                    "is_ufop":        bool(applicant and RE_UFOP.search(applicant or "")),
+                    "is_ufop":        bool(applicant and RE_UFOP.search(applicant)),
                 })
+        else:
+            # ── Fallback: formato antigo (blocos por código de despacho) ──────
+            for page in pdf.pages:
+                text = page.extract_text() or ""
+                blocks = re.split(r"\n(?=\(?\d{1,2}\.\d{1,2}(?:\.\d{1,2})?\)?\s)", text)
+                for block in blocks:
+                    block = block.strip()
+                    if len(block) < 20:
+                        continue
+                    m_proc = RE_PROCESS.search(block)
+                    m_desp = RE_DESPACHO.search(block)
+                    if not m_proc or not m_desp:
+                        continue
+                    ipcs    = RE_IPC.findall(block)
+                    niceM   = RE_NICE.search(block)
+                    niceCls = []
+                    if niceM:
+                        niceCls = [int(x) for x in re.findall(r"\d+", niceM.group(1))][:30]
+                    applicant = extract_applicant(block)
+                    despachos.append({
+                        "rpi_number":     rpi_number,
+                        "rpi_section":    section,
+                        "process_number": m_proc.group(0).replace(" ", ""),
+                        "despacho_code":  m_desp.group(1),
+                        "title":          extract_title(block),
+                        "applicant":      applicant,
+                        "ipc_codes":      ipcs,
+                        "nice_class":     niceCls,
+                        "raw_text":       block[:4000],
+                        "is_ufop":        bool(applicant and RE_UFOP.search(applicant or "")),
+                    })
     finally:
         pdf.close()
     return despachos
@@ -233,7 +316,8 @@ def main() -> int:
         print(f"Achei: {[r['number'] for r in rpis]}")
         pdfs = []
         for r in tqdm(rpis, desc="Downloading"):
-            pdf_url = find_pdf_in_index(r["index_url"])
+            # RPIs modernas (pós-2404) já têm pdf_url direto; antigas precisam scraping
+            pdf_url = r.get("pdf_url") or find_pdf_in_index(r.get("index_url", ""))
             if not pdf_url:
                 print(f"[no pdf] RPI {r['number']}")
                 continue

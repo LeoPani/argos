@@ -34,13 +34,15 @@ function sourceLabel(s: UFOPOpportunity["source"]): string {
   return ({ oai: "RI-UFOP", portal: "Portal UFOP", lens: "Lens.org" } as Record<string, string>)[s] ?? s;
 }
 
-// Áreas conhecidas para filtro (são os departments mapeados do setSpec).
+// Áreas conhecidas para filtro — match é substring enviada ao backend (ILIKE).
+// Mantida específica o suficiente para não capturar outros departamentos.
 const KNOWN_AREAS = [
-  { key: "Engenharia de Minas",      match: "Minas"   },
-  { key: "Engenharia Mineral",       match: "Mineral" },
-  { key: "Escola de Minas",          match: "Escola de Minas" },
-  { key: "Geologia",                 match: "Geologia" },
-  { key: "Direito",                  match: "Direito" },
+  { key: "Eng. Mineral (PPGEM)",  match: "Mineral"          },  // 311 itens
+  { key: "Escola de Minas",       match: "Escola de Minas"  },  // 606 itens
+  { key: "Eng. de Minas",         match: "Engenharia de Minas" }, // 358 itens
+  { key: "Geologia (DEGEO)",      match: "Geologia"         },  // 984 itens
+  { key: "Direito",               match: "Direito"          },  // 416 itens
+  { key: "EDTM / Museologia",     match: "EDTM"             },  // 309 itens
 ];
 
 // ─── main component ──────────────────────────────────────────────────────────

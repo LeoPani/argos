@@ -1,9 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
-
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 const ARGOS_API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -45,38 +40,78 @@ interface ChatRequest {
   thread_id?: number | null;
 }
 
+// ─── Anthropic provider ──────────────────────────────────────────────────────
+async function callAnthropic(messages: ChatRequestMsg[]): Promise<string> {
+  const Anthropic = (await import("@anthropic-ai/sdk")).default;
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    system: SYSTEM_PROMPT,
+    messages: messages.slice(-20).map(m => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
+  });
+  return response.content[0].type === "text" ? response.content[0].text : "";
+}
+
+// ─── Groq provider (fallback) ────────────────────────────────────────────────
+async function callGroq(messages: ChatRequestMsg[]): Promise<string> {
+  const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      max_tokens: 1024,
+      temperature: 0.3,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...messages.slice(-20).map(m => ({ role: m.role, content: m.content })),
+      ],
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(`Groq error ${resp.status}: ${JSON.stringify(err)}`);
+  }
+  const data = await resp.json();
+  return data.choices?.[0]?.message?.content ?? "";
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { messages, thread_id }: ChatRequest = await req.json();
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
+    const hasGroq      = !!process.env.GROQ_API_KEY;
+
+    if (!hasAnthropic && !hasGroq) {
       return NextResponse.json(
-        { error: "ANTHROPIC_API_KEY não configurada" },
+        { error: "Nenhuma API key configurada (ANTHROPIC_API_KEY ou GROQ_API_KEY)." },
         { status: 500 }
       );
     }
 
-    // Last user message — needed for both Claude and persistence.
     const lastUser = [...messages].reverse().find(m => m.role === "user");
     if (!lastUser) {
       return NextResponse.json({ error: "Nenhuma mensagem do usuário" }, { status: 400 });
     }
 
-    // ─ 1. Call Claude ─
-    const recentMessages = messages.slice(-20);
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: recentMessages.map(m => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
-    });
-    const assistantText =
-      response.content[0].type === "text" ? response.content[0].text : "";
+    // Usa Anthropic se disponível, senão Groq
+    let assistantText = "";
+    let provider = "groq";
+    if (hasAnthropic) {
+      assistantText = await callAnthropic(messages);
+      provider = "anthropic";
+    } else {
+      assistantText = await callGroq(messages);
+    }
 
-    // ─ 2. Persist to backend (non-blocking — best-effort) ─
+    // ─ Persistir no backend (best-effort) ─
     let threadID = thread_id ?? null;
     try {
       if (!threadID) {
@@ -90,10 +125,7 @@ export async function POST(req: NextRequest) {
           threadID = created.id;
         }
       }
-
       if (threadID) {
-        // Fire-and-forget the two append-message calls. Failures are
-        // logged but don't break the user experience.
         await Promise.all([
           fetch(`${ARGOS_API}/api/v1/chat/threads/${threadID}/messages`, {
             method: "POST",
@@ -111,12 +143,10 @@ export async function POST(req: NextRequest) {
       console.warn("chat persistence failed (non-fatal):", persistErr);
     }
 
-    return NextResponse.json({ content: assistantText, thread_id: threadID });
+    return NextResponse.json({ content: assistantText, thread_id: threadID, provider });
   } catch (err) {
     console.error("chat route error:", err);
-    return NextResponse.json(
-      { error: "Erro ao consultar IA. Verifique a ANTHROPIC_API_KEY." },
-      { status: 500 }
-    );
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: `Erro ao consultar IA: ${msg}` }, { status: 500 });
   }
 }
